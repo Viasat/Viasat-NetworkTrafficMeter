@@ -26,19 +26,23 @@ INFO_DELAY = 1
 # Variável que armazena todas as interfaces de rede disponíveis
 all_macs = {iface.mac for iface in ifaces.values()}
 
-# Um dicionário que mapeia cada conexão com o seu respection ID de processo (PID)
+# Dicionário que mapeia cada conexão com o seu respection ID de processo (PID)
 connection2pid = {}
 
-# Um dicionário que mapeia cada PID a um total de tráfego de Upload (0) e Download(1)
+# Dicionário que mapeia cada PID a um total de tráfego de Upload (0) e Download(1)
 pid2traffic = defaultdict(lambda: [0, 0])
 
-# Um dicionário que mapeia cada protocolo a um total de tráfego(0), Upload(1) e Download(2)
+# Dicionário que mapeia cada protocolo a um total de tráfego(0), Upload(1) e Download(2)
 protocol2traffic = defaultdict(lambda: [0, 0, 0])
+
+# Dicionário que mapeia cada host a um total de tráfego(0), Upload(1) e Download(2)
+host2traffic = defaultdict(lambda: [0, 0, 0])
 
 # The global Pandas DataFrame that's used to track previous traffic stats
 global_df = None
 process_traffic_df = None
 protocol_traffic_df = None
+host_traffic_df = None
 
 # Global boolean for status of the program
 is_program_running = True
@@ -61,7 +65,7 @@ def get_traffic_by_protocol(packet):
 
     global protocol2traffic
     port = 0
-    is_source_port = False
+    is_source = False
 
     if(packet.haslayer(IP)):
         try:
@@ -73,7 +77,7 @@ def get_traffic_by_protocol(packet):
             # Check whether the protocol is being stored on the source or destionation port
             if(packet.src not in all_macs):
                 port = packet_ports[0]
-                is_source_port = True
+                is_source = True
             else:
                 port = packet_ports[1]
 
@@ -87,7 +91,7 @@ def get_traffic_by_protocol(packet):
             
 
             protocol2traffic[service_name][0] += len(packet)
-            if(is_source_port):
+            if(is_source):
                 protocol2traffic[service_name][1] += len(packet)
             else:
                 protocol2traffic[service_name][2] += len(packet)
@@ -96,7 +100,6 @@ def get_traffic_by_process(packet):
     """
     Maps each connection to a process ID and store this information along with download/upload statics into the `pid2traffic` dict
     """
-
     global pid2traffic
     try:
         # Get the packet source & destination IP addresses and ports
@@ -116,6 +119,24 @@ def get_traffic_by_process(packet):
                 # Incoming packet, download
                 pid2traffic[packet_pid][1] += len(packet)
 
+def get_traffic_by_host(packet):
+    global host2traffic
+    is_source = False
+    ip = ""
+        
+    if(packet.haslayer(IP)):
+        if(packet.src not in all_macs):
+            ip = packet[IP].src
+            is_source = True
+        else:
+            ip = packet[IP].dst
+
+        host2traffic[ip][0] += len(packet)
+        if(is_source):
+            host2traffic[ip][1] += len(packet)
+        else:
+            host2traffic[ip][2] += len(packet)
+
 def process_packet(packet):
     """
     A function that process the packets into information used by the traffic analyzer.
@@ -125,6 +146,7 @@ def process_packet(packet):
 
     get_traffic_by_process(packet)
     get_traffic_by_protocol(packet)
+    get_traffic_by_host(packet)
     
 
 def get_connections():
@@ -185,6 +207,7 @@ def encode_traffic_by_process():
         # Append the process to our processes list
         processes.append(process)
     # Construct our Pandas DataFrame
+
     df = pd.DataFrame(processes)
 
     try:
@@ -255,6 +278,41 @@ def encode_traffic_by_protocol():
     df_json = printing_df.to_json(orient='index').encode()
 
     protocol_traffic_df = printing_df
+
+    return df_json
+
+def encode_traffic_by_host():
+    global host_traffic_df
+    hosts = []
+
+    for host_name, traffic in host2traffic.items():
+        try:
+            host = {"host" : host_name,  "total": traffic[0], "download": traffic[1], "upload": traffic[2]}
+            hosts.append(host)
+        except KeyError:
+            pass
+
+    df = pd.DataFrame(hosts)
+
+    try:
+        df = df.set_index("hosts")
+    except KeyError:
+        # when dataframe is empty
+        pass
+
+    printing_df = df.copy()
+
+    try:
+        printing_df["total"] = printing_df["total"].apply(get_size)
+        printing_df["download"] = printing_df["download"].apply(get_size)
+        printing_df["upload"] = printing_df["upload"].apply(get_size)
+    except KeyError:
+        # when dataframe is empty again
+        pass
+
+    df_json = printing_df.to_json(orient='index').encode()
+
+    host_traffic_df = printing_df
 
     return df_json
 
@@ -332,7 +390,43 @@ def send_traffic_by_process():
                 else:
                     print("Connection reestablished.")
                     continue
-    
+
+def send_traffic_by_host():
+    """
+    Sends all host/network statistics by socket communication.
+    This function runs in its Thread to optimize performance and allow parallel socket connections.
+    """
+
+    process_socket = socket.socket()
+
+    try:
+        process_socket.bind((HOST, PORT_HOSTNAME_TRAFFIC))
+    except OSError:
+        print("Port",PORT_HOSTNAME_TRAFFIC,"already in use, unable to bind port to socket.")
+    else:
+        process_socket.listen(1)
+        print("Waiting for client connection on port", PORT_HOSTNAME_TRAFFIC, "for streaming network usage per host.")
+
+        client_socket, client_address = process_socket.accept()
+        print("Client connected on", client_address, ". Now streaming network usage per host.")
+
+        process_socket.settimeout(SOCKET_TIMEOUT)
+
+        while is_program_running:
+            time.sleep(INFO_DELAY)
+            json = encode_traffic_by_host()
+
+            try:
+                client_socket.sendall(json)
+            except (ConnectionResetError, ConnectionRefusedError):
+                client_socket, client_address = attempt_socket_reconnection(process_socket, PORT_HOSTNAME_TRAFFIC, 5)
+                if(client_socket == False):
+                    print("Connection aborted by client, closing thread.")
+                    break
+                else:
+                    print("Connection reestablished.")
+                    continue
+
 def attempt_socket_reconnection(task_socket: socket, port: int, attempts: int):
     """
     Attempts to reconnect to a given socket and port by a non-negative number of attempts.
@@ -389,11 +483,15 @@ def print_all_traffic():
 
 
 if __name__ == "__main__":
-    traffic_by_protocol_thread = Thread(target=send_traffic_by_protocol)
-    traffic_by_protocol_thread.start()
 
     traffic_by_process_thread = Thread(target=send_traffic_by_process)
     traffic_by_process_thread.start()
+
+    traffic_by_protocol_thread = Thread(target=send_traffic_by_protocol)
+    traffic_by_protocol_thread.start()
+
+    traffic_by_host_thread = Thread(target=send_traffic_by_host)
+    traffic_by_host_thread.start()
 
      # Starts network sniffing
     print("Network sniffer initialized.")
