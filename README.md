@@ -9,7 +9,7 @@ Para que você possa construir a sua aplicação baseada no problema apresentado
 ## Execução
 1. Primeiramente, digite no terminal para clonar o repositório:
     ```
-    git clone https://github.com/Viasat/Viasat-WebTrafficMeter.git
+    git clone https://github.com/Viasat/Viasat-NetworkTrafficMeter.git
     ```
 
 2. Após instalar o projeto, execute o seguinte comando para instalar as dependências:
