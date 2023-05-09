@@ -24,7 +24,15 @@ SOCKET_TIMEOUT = 5
 INFO_DELAY = 1
 
 # Variável que armazena todas as interfaces de rede disponíveis
-all_macs = {iface.mac for iface in ifaces.values()}
+all_macs = set()
+
+for iface in psutil.net_if_addrs():
+    try:
+        mac = psutil.net_if_addrs()[iface][0].address.lower()
+    except:
+        mac = psutil.net_if_addrs()[iface][0].address
+    finally:
+        all_macs.add(mac)
 
 # Dicionário que mapeia cada conexão com o seu respection ID de processo (PID)
 connection2pid = {}
