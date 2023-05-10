@@ -391,7 +391,7 @@ def send_traffic_by_process():
 
             try:
                 client_socket.sendall(json)
-            except (ConnectionResetError, ConnectionRefusedError):
+            except (ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError):
                 client_socket, client_address = attempt_socket_reconnection(process_socket, PORT_NETWORK_TRAFFIC, 5)
                 if(client_socket == False):
                     print("Connection aborted by client, closing thread.")
