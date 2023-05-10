@@ -29,6 +29,7 @@ all_macs = set()
 for iface in psutil.net_if_addrs():
     try:
         mac = psutil.net_if_addrs()[iface][0].address.lower()
+        mac = mac.replace("-", ":")
     except:
         mac = psutil.net_if_addrs()[iface][0].address
     finally:
