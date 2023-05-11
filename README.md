@@ -9,7 +9,7 @@ Para que você possa construir a sua aplicação baseada no problema apresentado
 ## Execução
 1. Primeiramente, digite no terminal para clonar o repositório:
     ```
-    git clone https://github.com/Viasat/Viasat-WebTrafficMeter.git
+    git clone https://github.com/Viasat/Viasat-NetworkTrafficMeter.git
     ```
 
 2. Após instalar o projeto, execute o seguinte comando para instalar as dependências:
@@ -19,3 +19,7 @@ Para que você possa construir a sua aplicação baseada no problema apresentado
 3. Por fim, para iniciar o projeto:
     ```
     python.exe traffic_analyzer.py
+    ```
+    
+## Copyright e Licença
+Código e documentação copyright 2023 ViaSat, Inc. Código é lançado sob [licença Apache 2.0](https://github.com/Viasat/Viasat-NetworkTrafficMeter/blob/main/LICENSE).
