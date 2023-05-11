@@ -230,7 +230,10 @@ def get_traffic_data(packet : Packet):
                     
                     create_time = create_time.strftime("%d/%m/%Y, %H:%M:%S")
 
-                    pid2process_class[packet_pid] = Process(packet_pid, p.name(), create_time, upload, download)
+                    try:
+                        pid2process_class[packet_pid] = Process(packet_pid, p.name(), create_time, upload, download)
+                    except psutil.NoSuchProcess:
+                        pass
 
 def json_serialize_traffic_data():
     process_list_data = '''['''
