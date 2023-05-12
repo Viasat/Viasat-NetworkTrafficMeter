@@ -314,7 +314,7 @@ def send_traffic_data():
 
             try:
                 client_socket.sendall(response.encode())
-            except (ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError):
+            except (ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError, BrokenPipeError):
                 print(f"Connection problem on port {PORT_NETWORK_TRAFFIC}")
                 client_socket, client_address = attempt_socket_reconnection(protocol_socket, PORT_NETWORK_TRAFFIC, 5)
                 if(client_socket == False):
