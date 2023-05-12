@@ -42,16 +42,20 @@ pid2process_class = {}
 is_program_running = True
 
 class Process:
-    def __init__(self, pid, name, create_time, upload, download):
+    def __init__(self, pid, name, create_time, last_time_updated, upload, download):
         self.pid = pid
         self.name = name
         self.create_time = create_time
+        self.last_time_updated = last_time_updated
         self.upload = upload
         self.download = download
         self.upload_speed = 0
         self.download_speed = 0
         self.protocol_traffic = defaultdict(lambda: [0,0])
         self.hosts_traffic = defaultdict(lambda: [0,0])
+
+    def update_last_time_updated(self, new_time):
+        self.last_time_updated = new_time
 
     def update_download(self, new_download: float):
         self.download += new_download
@@ -60,10 +64,10 @@ class Process:
         self.upload += new_upload
 
     def update_download_speed(self, new_download: float):
-        self.download_speed = abs(new_download - self.download_speed)
+        self.download_speed = new_download
     
     def update_upload_speed(self, new_upload: float):
-        self.upload_speed = abs(new_upload - self.upload_speed)
+        self.upload_speed = new_upload
 
     def update_protocol_traffic(self, new_protocol_traffic: dict):
         protocol = list(new_protocol_traffic.keys())[0]
@@ -78,11 +82,11 @@ class Process:
         self.hosts_traffic[host][1] += new_hosts_traffic[host][1] # Upload
     
     def to_JSON(self):
-        # TODO: Continue manual serialization
         json_data = f'''{{
         "pid": "{self.pid}",
         "name": "{self.name}",
         "create_time": "{self.create_time}",
+        "last_time_update": "{self.last_time_updated}",
         "upload": "{get_size(self.upload)}",
         "download": "{get_size(self.download)}",
         "upload_speed": "{get_size(self.upload_speed)}/s",
@@ -124,10 +128,6 @@ class Process:
 
         return json_formatted_str
         #return json.dumps(self, default= lambda o: o.__dict__, sort_keys=True, indent=4)
-
-    def __str__(self):
-        # return f'PID: {self.pid} \nName: {self.name} \nUpload: {self.upload} \nDownload: {self.download} \nUpload Speed: {self.upload_speed} \nDownload Speed: {self.download_speed} \n '
-        return f'{self.pid}, {self.name}, {self.create_time}, {self.upload}, {self.download}, {self.upload_speed}, {self.download_speed}, {self.protocol_traffic}, {self.hosts_traffic}'
 
 def get_size(bytes : int):
     """
@@ -220,8 +220,10 @@ def get_traffic_data(packet : Packet):
                     protocol[service_name][1] = packet_size
                     host[host_ip][0] = 0
                     host[host_ip][1] = packet_size
+                
+                new_time = datetime.now().strftime("%d/%m/%Y, %H:%M:%S")
 
-                if not update_process(packet_pid, upload, download, protocol, host):
+                if not update_process(packet_pid, new_time, upload, download, protocol, host):
                     try:
                         create_time = datetime.fromtimestamp(p.create_time())
                     except OSError:
@@ -231,7 +233,7 @@ def get_traffic_data(packet : Packet):
                     create_time = create_time.strftime("%d/%m/%Y, %H:%M:%S")
 
                     try:
-                        pid2process_class[packet_pid] = Process(packet_pid, p.name(), create_time, upload, download)
+                        pid2process_class[packet_pid] = Process(packet_pid, p.name(), create_time, new_time, upload, download)
                     except psutil.NoSuchProcess:
                         pass
 
@@ -251,13 +253,14 @@ def json_serialize_traffic_data():
     return json_formatted_str
  
 
-def update_process(pid, upload: float, download: float, protocol: dict, host: dict) -> bool:
+def update_process(pid, new_time: str, upload: float, download: float, protocol: dict, host: dict) -> bool:
 
     global pid2process_class
 
     if pid in pid2process_class.keys(): # PID exists in the dictionary, therefore we update the process
         current_process = pid2process_class[pid]
 
+        current_process.update_last_time_updated(new_time)
         current_process.update_upload(upload)
         current_process.update_download(download)
         current_process.update_upload_speed(upload)
@@ -298,11 +301,21 @@ def send_traffic_data():
             time.sleep(INFO_DELAY)
             json = json_serialize_traffic_data()
 
-            try:
-                client_socket.sendto(json.encode(), (HOST, PORT_NETWORK_TRAFFIC))
+            response = (
+                'HTTP/1.1 200 OK\r\n'
+                'Content-Type: application/json\r\n'
+                'Access-Control-Allow-Origin: *\r\n'
+                'Access-Control-Allow-Headers: Content-Type\r\n'
+                'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n'
+                f'Content-Length: {len(json)}\r\n'
+                '\r\n'
+                f'{json}\r\n'
+            )
 
-            except (ConnectionResetError, ConnectionRefusedError):
-                print("Connection reset by client, closing thread.")
+            try:
+                client_socket.sendall(response.encode())
+            except (ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError):
+                print(f"Connection problem on port {PORT_NETWORK_TRAFFIC}")
                 client_socket, client_address = attempt_socket_reconnection(protocol_socket, PORT_NETWORK_TRAFFIC, 5)
                 if(client_socket == False):
                     print("Connection aborted by client, closing thread.")

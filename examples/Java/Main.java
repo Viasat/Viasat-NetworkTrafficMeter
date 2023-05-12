@@ -8,7 +8,8 @@ public class Main {
     public static void main(String[] args) {
         try {
             List<SocketConnectionHandler> handlers = new ArrayList<>();
-            handlers.add(handleSocketConnection(50000)); // Para conexão com o traffic_analyzer_v2.py, utilize apenas o port 50000; exclua as linhas 7 e 8.
+            // Para utilizar esse exemplo com o traffic_analyzer_v2.py, remova as linhas 13-14.
+            handlers.add(handleSocketConnection(50000)); 
             handlers.add(handleSocketConnection(50001));
             handlers.add(handleSocketConnection(50002));
             for (SocketConnectionHandler handler : handlers) {

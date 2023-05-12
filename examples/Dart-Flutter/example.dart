@@ -2,8 +2,9 @@ import 'dart:io';
 
 void main() async {
   try {
+    // Para utilizar esse exemplo com o traffic_analyzer_v2.py, remova as linhas 8-9
     var futures = <Future>[];
-    futures.add(handleSocketConnection(50000)); // Para conexão com o traffic_analyzer_v2.py, utilize apenas o port 50000; exclua as linhas 7 e 8.
+    futures.add(handleSocketConnection(50000));
     futures.add(handleSocketConnection(50001));
     futures.add(handleSocketConnection(50002));
     await Future.wait(futures);

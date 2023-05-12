@@ -201,8 +201,8 @@ def encode_traffic_by_process():
             create_time = datetime.fromtimestamp(psutil.boot_time())
         # Construct our dictionary that stores process info
         process = {
-            "pid": pid, "name": name, "create_Time": create_time, "upload": traffic[0],
-            "download": traffic[1],
+            "pid": pid, "name": name, "create_Time": create_time.strftime("%d/%m/%Y, %H:%M:%S"), "last_time_updated": datetime.now().strftime("%d/%m/%Y, %H:%M:%S"),
+            "upload": traffic[0], "download": traffic[1],
         }
         try:
             # Calculate the upload and download speeds by simply subtracting the old stats from the new stats
@@ -351,10 +351,21 @@ def send_traffic_by_protocol():
             time.sleep(INFO_DELAY)
             json = encode_traffic_by_protocol()
 
+            response = (
+                'HTTP/1.1 200 OK\r\n'
+                'Content-Type: application/json\r\n'
+                'Access-Control-Allow-Origin: *\r\n'
+                'Access-Control-Allow-Headers: Content-Type\r\n'
+                'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n'
+                f'Content-Length: {len(json)}\r\n'
+                '\r\n'
+                f'{json}\r\n'
+            )
+
             try:
-                client_socket.sendall(json)
-            except (ConnectionResetError, ConnectionRefusedError):
-                print("Connection reset by client, closing thread.")
+                client_socket.sendall(response.encode())
+            except (ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError):
+                print(f"Connection problem on port {PORT_PROTOCOL_TRAFFIC}")
                 client_socket, client_address = attempt_socket_reconnection(protocol_socket, PORT_PROTOCOL_TRAFFIC, 5)
                 if(client_socket == False):
                     print("Connection aborted by client, closing thread.")
@@ -389,9 +400,21 @@ def send_traffic_by_process():
             get_connections()
             json = encode_traffic_by_process()
 
+            response = (
+                'HTTP/1.1 200 OK\r\n'
+                'Content-Type: application/json\r\n'
+                'Access-Control-Allow-Origin: *\r\n'
+                'Access-Control-Allow-Headers: Content-Type\r\n'
+                'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n'
+                f'Content-Length: {len(json)}\r\n'
+                '\r\n'
+                f'{json}\r\n'
+            )
+
             try:
-                client_socket.sendall(json)
+                client_socket.sendall(response.encode())
             except (ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError):
+                print(f"Connection problem on port {PORT_NETWORK_TRAFFIC}")
                 client_socket, client_address = attempt_socket_reconnection(process_socket, PORT_NETWORK_TRAFFIC, 5)
                 if(client_socket == False):
                     print("Connection aborted by client, closing thread.")
@@ -424,10 +447,22 @@ def send_traffic_by_host():
         while is_program_running:
             time.sleep(INFO_DELAY)
             json = encode_traffic_by_host()
+            
+            response = (
+                'HTTP/1.1 200 OK\r\n'
+                'Content-Type: application/json\r\n'
+                'Access-Control-Allow-Origin: *\r\n'
+                'Access-Control-Allow-Headers: Content-Type\r\n'
+                'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n'
+                f'Content-Length: {len(json)}\r\n'
+                '\r\n'
+                f'{json}\r\n'
+            )
 
             try:
-                client_socket.sendall(json)
-            except (ConnectionResetError, ConnectionRefusedError):
+                client_socket.sendall(response.encode())
+            except (ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError):
+                print(f"Connection problem on port {PORT_HOSTNAME_TRAFFIC}")
                 client_socket, client_address = attempt_socket_reconnection(process_socket, PORT_HOSTNAME_TRAFFIC, 5)
                 if(client_socket == False):
                     print("Connection aborted by client, closing thread.")
