@@ -46,11 +46,6 @@ export class AppComponent implements OnInit {
     //   // Handle received data
     // });
 
-    socket.on('trafficData', (data: any) => {
-      console.log(JSON.stringify(data, null, 2));
-      // Handle received data
-    });
-
     socket.on('disconnect', () => {
       console.log(`Connection closed on localhost:${port}`);
     });
