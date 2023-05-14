@@ -12,13 +12,27 @@ function createWindow() {
     },
   });
 
-  const client = net.connect(50000, '127.0.0.1', () => {
+  const client = net.connect(8000, '127.0.0.1', () => {
     console.log('Connected to server');
   });
 
+  //Para a V2 pasta escutar o evento "data"
   client.on('data', (data) => {
     mainWindow.webContents.send('message', data.toString());
   });
+
+  //Para a V1 existem esses 3 métodos comentados abaixo
+  // client.on('networkTraffic', (data) => {
+  //   mainWindow.webContents.send('message', data.toString());
+  // });
+
+  // client.on('protocolTraffic', (data) => {
+  //   mainWindow.webContents.send('message', data.toString());
+  // });
+
+  // client.on('hostnameTraffic', (data) => {
+  //   mainWindow.webContents.send('message', data.toString());
+  // });
 
   mainWindow.loadFile('index.html');
 

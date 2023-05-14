@@ -302,19 +302,8 @@ def send_traffic_data():
             time.sleep(INFO_DELAY)
             json = json_serialize_traffic_data()
 
-            response = (
-                'HTTP/1.1 200 OK\r\n'
-                'Content-Type: application/json\r\n'
-                'Access-Control-Allow-Origin: *\r\n'
-                'Access-Control-Allow-Headers: Content-Type\r\n'
-                'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n'
-                f'Content-Length: {len(json)}\r\n'
-                '\r\n'
-                f'{json}\r\n'
-            )
-
             try:
-                client_socket.sendall(response.encode())
+                client_socket.sendto(json.encode(),(HOST, PORT_NETWORK_TRAFFIC))
             except (ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError, BrokenPipeError):
                 print(f"Connection problem on port {PORT_NETWORK_TRAFFIC}")
                 client_socket, client_address = attempt_socket_reconnection(protocol_socket, PORT_NETWORK_TRAFFIC, 5)
