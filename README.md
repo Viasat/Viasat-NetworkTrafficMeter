@@ -17,19 +17,23 @@ Para que você possa construir a sua aplicação baseada no problema apresentado
    ```
    cd Viasat-NetworkTrafficMeter
    ```
-3. Após instalar o projeto, execute o seguinte comando para instalar as dependências do python:
+3. Altere seu projeto para a Branch correta
+    ```
+    git checkout broken-pipe-fix 
+    ```
+4. Após instalar o projeto, execute o seguinte comando para instalar as dependências do python:
     ```
     pip install -r requirements.txt
     ```
-4. Instale também as dependências Javascript
+5. Instale também as dependências Javascript
    ```
    npm i
    ```
-5. Inicie um dos arquivos traffic_analyzer:
+6. Inicie um dos arquivos traffic_analyzer:
     ```
     python.exe traffic_analyzer.py
     ```
-6. Inicie o wrapper JavaScript equivalente:
+7. Inicie o wrapper JavaScript equivalente:
    ```
    node node_wrapper.js 
    ```
