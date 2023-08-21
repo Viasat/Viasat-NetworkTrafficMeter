@@ -45,13 +45,13 @@ func main() {
 	}
 
 	// Print the titles for the statistics
-	fmt.Println("Packet Count | Total Bytes | Total Payload Bytes | Total Payload with Header Bytes")
+	fmt.Println("Packet Count | Total Bytes | Total Payload (Bytes) ")
 
 	// Create a packet source to process packets
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
 	// Declare variables to keep track of packet statistics
-	var packetCount, totalBytes, totalPayloadBytes, totalPayloadWithHeaderBytes int
+	var packetCount, totalBytes, totalPayload int
 
 	// Loop through packets from the packet source
 	for packet := range packetSource.Packets() {
@@ -59,15 +59,13 @@ func main() {
 		totalBytes += len(packet.Data()) // Add total bytes
 
 		if appLayer := packet.ApplicationLayer(); appLayer != nil {
-			totalPayloadBytes += len(appLayer.Payload()) // Add total payload bytes if ApplicationLayer exists
-		}
-
-		if transLayer := packet.TransportLayer(); transLayer != nil {
-			totalPayloadWithHeaderBytes += len(transLayer.LayerContents()) // Add total payload with header bytes if TransportLayer exists
+			totalPayload += len(appLayer.Payload()) // Add total payload bytes if ApplicationLayer exists
+		} else if transLayer := packet.TransportLayer(); transLayer != nil {
+			totalPayload += len(transLayer.LayerPayload()) // Otherwise, add total payload bytes if TransportLayer exists
 		}
 
 		// Print the statistics, updating the counters without printing new lines
-		fmt.Printf("\r%13d | %12d | %18d | %29d", packetCount, totalBytes, totalPayloadBytes, totalPayloadWithHeaderBytes)
+		fmt.Printf("\r%13d | %12d | %18d", packetCount, totalBytes, totalPayload)
 	}
 
 	fmt.Println() // Print a newline at the end for cleaner termination
