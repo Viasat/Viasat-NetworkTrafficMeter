@@ -10,6 +10,36 @@ import (
 	"github.com/shirou/gopsutil/v3/net"
 )
 
+type Application struct {
+	name             string
+	last_update_time string
+	upload_total     uint32
+	download_total   uint32
+	processes        []ProcessData
+	protocols        []ProtocolData
+	hosts            []HostData
+}
+
+type ProcessData struct {
+	pid          int32
+	port         uint32
+	created_time string
+	upload       uint32
+	download     uint32
+}
+
+type ProtocolData struct {
+	protocol string
+	upload   uint32
+	download uint32
+}
+
+type HostData struct {
+	host     string
+	upload   uint32
+	download uint32
+}
+
 type ConnectionPorts struct {
 	localAddressPort  uint32
 	remoteAddressPort uint32
