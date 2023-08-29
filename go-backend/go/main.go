@@ -18,6 +18,7 @@ import (
 
 type ProcessData struct {
 	pid              int32
+	name             string
 	created_time     int64
 	last_update_time int64
 	upload           int
@@ -43,18 +44,20 @@ type ConnectionPorts struct {
 	remoteAddressPort uint32
 }
 
-// TODO: Create a function to sweep the 'connections2pid' map, removing any outdated PIDs or inactive connections
 var (
-	connections2pid map[ConnectionPorts]int32 = make(map[ConnectionPorts]int32) // Maps any connection (port to another port) to its respective PID
-	pid2proc_data   map[string]ProcessData    = make(map[string]ProcessData)    // Map to relate a process name to its application
-	all_macs        map[string]bool                                             // A makeshift set for storing the MAC address of all NICs
+	// connections2pid map[ConnectionPorts]int32 = make(map[ConnectionPorts]int32) // Maps any connection (port to another port) to its respective PID
+	pid2proc_data map[string]ProcessData = make(map[string]ProcessData) // Map to relate a process name to its application
+	all_macs      map[string]bool                                       // A makeshift set for storing the MAC address of all NICs
 )
 
-// FIXME: Eliminate race condition when accessing connections2pid
-func getConnections() {
+// FIXME: Performance peaks at 40% CPU usage when downloading, optimize goroutines
+func getConnections(connections2pid chan<- map[ConnectionPorts]int32) {
 	for {
+		// Create a new connection map
+		var conn2pid map[ConnectionPorts]int32 = make(map[ConnectionPorts]int32)
+
 		// Get system-wide socket connections
-		connections, err := net.Connections("inet")
+		connections, err := net.Connections("all")
 
 		// Log any errors
 		if err != nil {
@@ -62,31 +65,33 @@ func getConnections() {
 		}
 
 		// Map valid connections as {ConnectionPorts : PID}
-		for item := range connections {
+		for _, conn := range connections {
 
 			// Get this connection's PID
-			pid := connections[item].Pid
+			pid := conn.Pid
 
 			// Skip this iteration if either local or remote IPs don't exist
-			if localAddr := connections[item].Laddr.IP; localAddr == "" {
+			if localAddr := conn.Laddr.IP; localAddr == "" {
 				// log.Print("Local Address doesn't exist")
 				continue
 			}
 
-			if remoteAddr := connections[item].Raddr.IP; remoteAddr == "" {
+			if remoteAddr := conn.Raddr.IP; remoteAddr == "" {
 				// log.Print("Remote Address doesn't exist")
 				continue
 			}
 
 			// Add the PID as entry in our map, using both ports as the key
-			conn_ports := ConnectionPorts{localAddressPort: connections[item].Laddr.Port, remoteAddressPort: connections[item].Raddr.Port}
+			conn_ports := ConnectionPorts{localAddressPort: conn.Laddr.Port, remoteAddressPort: conn.Raddr.Port}
 
-			connections2pid[conn_ports] = pid
+			conn2pid[conn_ports] = pid
 		}
+
+		connections2pid <- conn2pid
 	}
 }
 
-func getNetworkData(packet gopacket.Packet) (proc ProcessData, err error) {
+func getNetworkData(packet gopacket.Packet, connections2pid <-chan map[ConnectionPorts]int32) (proc ProcessData, err error) {
 	var (
 		process_name               string
 		total_payload              int
@@ -110,8 +115,10 @@ func getNetworkData(packet gopacket.Packet) (proc ProcessData, err error) {
 		return ProcessData{}, err
 	}
 
+	conn2pid := <-connections2pid
+
 	// Get PID from 'connection2pid' map
-	if process_data.pid, err = getPidFromConnection(src_port, dst_port); err != nil {
+	if process_data.pid, err = getPidFromConnection(src_port, dst_port, conn2pid); err != nil {
 		//log.Fatal(err)
 		return ProcessData{}, err
 	}
@@ -154,8 +161,10 @@ func getNetworkData(packet gopacket.Packet) (proc ProcessData, err error) {
 		protocol_data.download = total_payload
 	}
 
+	process_data.name = process_name
 	process_data.last_update_time = time.Now().UnixMilli()
-	pid2proc_data[process_name] = process_data
+
+	// pid2proc_data[process_name] = process_data
 
 	return process_data, nil
 }
@@ -177,6 +186,7 @@ func getNetworkAddresses(packet gopacket.Packet) (src_ip string, dst_ip string, 
 }
 
 // Returns the port number from the transport layer of a packet
+// TODO: Some UDP Packets are being dropped; review those
 func getPortInfo(packet gopacket.Packet) (src_port uint32, dst_port uint32, err error) {
 	if transportLayer := packet.TransportLayer(); transportLayer != nil {
 		switch transportLayer.LayerType() {
@@ -209,14 +219,13 @@ func getProtocolName(packet gopacket.Packet) (src_protocol string, dst_protocol 
 }
 
 // Get the PID from connections2pid, given source and destination ports
-// TODO: Put map as parameter, for unit testing
-func getPidFromConnection(src_port, dst_port uint32) (pid int32, err error) {
+func getPidFromConnection(src_port, dst_port uint32, conn2pid map[ConnectionPorts]int32) (pid int32, err error) {
 	var conn_port = ConnectionPorts{localAddressPort: src_port, remoteAddressPort: dst_port}
 	var conn_port_inv = ConnectionPorts{localAddressPort: dst_port, remoteAddressPort: src_port}
 
-	if pid, ok := connections2pid[conn_port]; ok {
+	if pid, ok := conn2pid[conn_port]; ok {
 		return pid, nil
-	} else if pid, ok := connections2pid[conn_port_inv]; ok {
+	} else if pid, ok := conn2pid[conn_port_inv]; ok {
 		return pid, nil
 	}
 
@@ -251,6 +260,7 @@ func getProcessInfo(pid int32) (create_time int64, proc_name string, err error) 
 }
 
 // Get payload size from packet
+// TODO: Review how the payload is collected. Some packets don't have payload, but the headers are still present in the network flow
 func getPayload(packet gopacket.Packet) (payload int, err error) {
 	if app_layer := packet.ApplicationLayer(); app_layer != nil {
 		return len(app_layer.Payload()), nil // Add total payload bytes if ApplicationLayer exists
@@ -295,28 +305,21 @@ func main() {
 		}
 	}
 
+	// Creates a map relating connections and their PIDs.
+	// Used as a channel variable between 'getConnections' (writer) and getNetworkData
+	var connections2pid chan map[ConnectionPorts]int32 = make(chan map[ConnectionPorts]int32)
+
+	// Create new thread for mapping connections to their respective PID
+	go getConnections(connections2pid)
+
 	// Create a packet source to process packets
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
-	// Create new thread for mapping connections to their respective PID
-	go getConnections()
-
-	// Creates a map relating connections and their PIDs.
-	// Used as a channel variable between 'getConnections' (writer) and getNetworkData
-	// var connections2pid chan map[ConnectionPorts]int32 = make(chan map[ConnectionPorts]int32)
-
 	// Loop through packets from the packet source
 	for packet := range packetSource.Packets() {
-
 		// Print process data
-		if proc, err := getNetworkData(packet); err != nil {
+		if _, err := getNetworkData(packet, connections2pid); err != nil {
 			fmt.Println(err.Error())
-		} else {
-			fmt.Println("PID: ", proc.pid)
-			fmt.Println("Create Time: ", proc.created_time)
-			fmt.Println("Last Update Time: ", proc.last_update_time)
-			fmt.Println("Download: ", proc.download)
-			fmt.Println("Upload: ", proc.upload)
 		}
 	}
 
