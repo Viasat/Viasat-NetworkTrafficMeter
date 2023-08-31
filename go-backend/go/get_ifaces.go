@@ -17,8 +17,8 @@ type NetworkInterface struct {
 func getMacAddresses() (map[string]bool, error) {
 
 	var (
-		macs map[string]bool
-		err  error = nil
+		macs map[string]bool = map[string]bool{}
+		err  error           = nil
 	)
 
 	if ifaces, e := net.Interfaces(); err != nil {

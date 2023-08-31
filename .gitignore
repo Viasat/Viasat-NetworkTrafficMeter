@@ -1,1 +1,5 @@
+# IDE specifics
+/.vscode
+
 /go-backend/pcap_capture
+/venv

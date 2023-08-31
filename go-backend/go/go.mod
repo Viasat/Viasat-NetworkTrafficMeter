@@ -10,6 +10,7 @@ require (
 	github.com/go-gl/gl v0.0.0-20211210172815-726fda9656d6 // indirect
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20220320163800-277f93cfa958 // indirect
 	github.com/google/gopacket v1.1.19 // indirect
+	github.com/klauspost/compress v1.10.3 // indirect
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
 	github.com/sahilm/fuzzy v0.1.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.23.7 // indirect
@@ -17,4 +18,5 @@ require (
 	golang.org/x/net v0.0.0-20190620200207-3b0461eec859 // indirect
 	golang.org/x/sys v0.10.0 // indirect
 	gopkg.in/eapache/queue.v1 v1.1.0 // indirect
+	nhooyr.io/websocket v1.8.7 // indirect
 )
