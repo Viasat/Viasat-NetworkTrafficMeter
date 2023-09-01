@@ -21,14 +21,14 @@ import (
 )
 
 type ProcessData struct {
-	Pid         int32        `json:"pid"`
-	Name        string       `json:"name"`
-	Create_Time int64        `json:"create_time"`
-	Update_Time int64        `json:"update_time"`
-	Upload      int          `json:"upload"`
-	Download    int          `json:"download"`
-	Protocol    ProtocolData `json:"protocol"`
-	Host        HostData     `json:"host"`
+	Pid         int32
+	Name        string
+	Create_Time int64
+	Update_Time int64
+	Upload      int
+	Download    int
+	Protocol    ProtocolData
+	Host        HostData
 }
 
 type ProtocolData struct {
