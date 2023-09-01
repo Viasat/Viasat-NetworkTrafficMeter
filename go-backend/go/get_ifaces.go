@@ -34,9 +34,10 @@ func getMacAddresses() (map[string]bool, error) {
 
 // printUsageAndDevices prints the usage instructions for the program as well as a list of network interfaces for the user to choose should they not inform one.
 func printUsageAndDevices() (device string, err error) {
-	fmt.Println("Usage: gocap -i <interface> [-f <filter>]")
-	fmt.Println("Please specify the network interface to capture packets on.")
-	fmt.Println("Optionally, you can specify a BPF filter with the -f flag.")
+	fmt.Println("Usage: main -i <interface> [-f <filter> -v]")
+	fmt.Println("-i <interface> - Network interface to capture packets on.")
+	fmt.Println("-f <filter> - BPF filter")
+	fmt.Println("-v - Verbose, set it to true for detailed information on the packet processing")
 	fmt.Println()
 
 	fmt.Println("List of available interfaces: ")
