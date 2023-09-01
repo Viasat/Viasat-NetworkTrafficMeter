@@ -284,9 +284,8 @@ func getPayload(packet gopacket.Packet) (payload int, err error) {
 // jsonEncodeProcessData takes a ProcessData object, encodes it into JSON and sends it to the proc_to_json channel, where it will be sent to the Websocket client.
 func jsonEncodeProcessData(process_data ProcessData) {
 	if json_str, err := json.Marshal(process_data); err != nil {
-		fmt.Println(err.Error())
+		log.Println(err.Error())
 	} else {
-		fmt.Println(string(json_str))
 		proc_to_json <- json_str
 	}
 }
@@ -316,27 +315,24 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 // startServer initializes the Websocket handle and assigns it to port 50000
 func startServer() {
-	http.HandleFunc("/websocket", websocketHandler)
+	http.HandleFunc("/", websocketHandler)
 	http.ListenAndServe(":50000", nil)
-}
-
-// printUsage prints the usage instructions for the program
-func printUsage() {
-	fmt.Println("Usage: gocap -i <interface> [-f <filter>]")
-	fmt.Println("Please specify the network interface to capture packets on.")
-	fmt.Println("Optionally, you can specify a BPF filter with the -f flag.")
 }
 
 func main() {
 	// Define command-line flags for the network interface and filter
-	interfaceName := flag.String("i", "", "Network interface to capture packets on")
+	interface_name := flag.String("i", "", "Network interface to capture packets on")
 	filter := flag.String("f", "", "BPF filter for capturing specific packets")
+
 	flag.Parse() // Parse command-line arguments
 
-	// Check if the interface name was provided; if not, print usage instructions and exit
-	if *interfaceName == "" {
-		printUsage()
-		return
+	// Check if the interface name was provided; if not, show instructions and list of available interfaces
+	if *interface_name == "" {
+		if dev, err := printUsageAndDevices(); err != nil {
+			log.Fatal(err)
+		} else {
+			*interface_name = dev // If the interface choice is valid, get its name for initializing the handle
+		}
 	}
 
 	// Set MAC addresses
@@ -347,7 +343,7 @@ func main() {
 	}
 
 	// Open the specified network interface for packet capture
-	handle, err := pcap.OpenLive(*interfaceName, 1600, true, pcap.BlockForever)
+	handle, err := pcap.OpenLive(*interface_name, 1600, true, pcap.BlockForever)
 	if err != nil {
 		log.Fatal(err) // Log any error
 	}
