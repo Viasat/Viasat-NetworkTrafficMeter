@@ -57,7 +57,7 @@ var (
 )
 
 // FIXME: Performance peaks at 40% CPU usage when downloading, optimize goroutines
-func getConnections(interval int16) {
+func getConnections(interval int16, verbose *bool) {
 	for {
 		// Get system-wide socket connections
 		connections, err := net.Connections("all")
@@ -91,7 +91,11 @@ func getConnections(interval int16) {
 			connections2pid[conn_ports] = pid
 			dataMutex.Unlock()
 		}
-		log.Println("Connections refreshed")
+
+		if *verbose {
+			log.Println("Connections refreshed")
+		}
+
 		time.Sleep(time.Second * time.Duration(interval))
 	}
 }
@@ -291,6 +295,7 @@ func jsonEncodeProcessData(process_data ProcessData) {
 }
 
 // websocketHandler opens the Websocket Server, waits for a connection and sends the 'proc_to_json' data
+// TODO: Separate Websocket server logic from main program
 func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
 	if err != nil {
@@ -298,7 +303,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Connected to Websocket client ")
+	log.Printf("Connected to Websocket client")
 
 	defer conn.Close(websocket.StatusInternalError, "Internal Server Error")
 
@@ -315,6 +320,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 // startServer initializes the Websocket handle and assigns it to port 50000
 func startServer() {
+	log.Printf("Waiting for client connection on ws://localhost:50000/")
 	http.HandleFunc("/", websocketHandler)
 	http.ListenAndServe(":50000", nil)
 }
@@ -323,6 +329,7 @@ func main() {
 	// Define command-line flags for the network interface and filter
 	interface_name := flag.String("i", "", "Network interface to capture packets on")
 	filter := flag.String("f", "", "BPF filter for capturing specific packets")
+	verbose := flag.Bool("v", false, "Flag for displaying processing information")
 
 	flag.Parse() // Parse command-line arguments
 
@@ -361,7 +368,7 @@ func main() {
 	go startServer()
 
 	// Create new goroutine for mapping connections to their respective PID
-	go getConnections(5)
+	go getConnections(5, verbose)
 
 	// Create a packet source to process packets
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
@@ -369,7 +376,9 @@ func main() {
 	// Loop through packets from the packet source
 	for packet := range packetSource.Packets() {
 		// Print process data
-		go getNetworkData(packet)
+		if err := getNetworkData(packet); err != nil && *verbose {
+			log.Println(err.Error())
+		}
 	}
 	fmt.Println() // Print a newline at the end for cleaner termination
 }

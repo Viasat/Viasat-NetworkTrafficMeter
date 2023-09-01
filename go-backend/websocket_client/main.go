@@ -12,7 +12,7 @@ import (
 // Used for debugging purposes, such as testing the connection and printing the received data
 func main() {
 	ctx := context.Background()
-	url := "ws://localhost:50000/websocket"
+	url := "ws://localhost:50000"
 
 	conn, _, err := websocket.Dial(ctx, url, nil)
 	if err != nil {
