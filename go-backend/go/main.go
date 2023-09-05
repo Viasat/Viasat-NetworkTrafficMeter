@@ -1,12 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
-	"nhooyr.io/websocket"
 )
 
 type ProcessData struct {
@@ -51,7 +48,7 @@ type ConnectionPorts struct {
 var (
 	connections2pid map[ConnectionPorts]int32 = make(map[ConnectionPorts]int32) // Maps any connection (port to another port) to its respective PID
 	all_macs        map[string]bool                                             // A makeshift set for storing the MAC address of all NICs
-	proc_to_json    chan []byte               = make(chan []byte)               // Channel used to send the JSON data to the websocket server
+	//proc_to_json    chan []byte               = make(chan []byte)               // Channel used to send the JSON data to the websocket server
 
 	dataMutex = sync.RWMutex{}
 )
@@ -283,46 +280,6 @@ func getPayload(packet gopacket.Packet) (payload int, err error) {
 	}
 
 	return 0, errors.New("Unable to extract payload size from both Application and Transport layers")
-}
-
-// jsonEncodeProcessData takes a ProcessData object, encodes it into JSON and sends it to the proc_to_json channel, where it will be sent to the Websocket client.
-func jsonEncodeProcessData(process_data ProcessData) {
-	if json_str, err := json.Marshal(process_data); err != nil {
-		log.Println(err.Error())
-	} else {
-		proc_to_json <- json_str
-	}
-}
-
-// websocketHandler opens the Websocket Server, waits for a connection and sends the 'proc_to_json' data
-// TODO: Separate Websocket server logic from main program
-func websocketHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
-	if err != nil {
-		log.Printf("Failed to accept WebSocket connection: %v", err)
-		return
-	}
-
-	log.Printf("Connected to Websocket client")
-
-	defer conn.Close(websocket.StatusInternalError, "Internal Server Error")
-
-	for {
-
-		data := <-proc_to_json
-
-		if err := conn.Write(r.Context(), websocket.MessageText, data); err != nil {
-			log.Printf("Failed to send message: %v", err)
-			return
-		}
-	}
-}
-
-// startServer initializes the Websocket handle and assigns it to port 50000
-func startServer() {
-	log.Printf("Waiting for client connection on ws://localhost:50000/")
-	http.HandleFunc("/", websocketHandler)
-	http.ListenAndServe(":50000", nil)
 }
 
 func main() {
