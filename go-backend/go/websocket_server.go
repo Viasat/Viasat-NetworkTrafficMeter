@@ -22,14 +22,14 @@ func jsonEncodeProcessData(process_data ProcessData) {
 }
 
 // websocketHandler opens the Websocket Server, waits for a connection and sends the 'proc_to_json' data
-// TODO: Separate Websocket server logic from main program
+// TODO: Use InsecureSkipVerify ONLY for debugging. Use OriginPatterns to safely accept cross origin websockets
 func websocketHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+	})
 	if err != nil {
-		log.Printf("Failed to accept WebSocket connection: %v", err)
+		log.Printf("Error: %v", err)
 		return
 	}
 
