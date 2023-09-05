@@ -102,21 +102,13 @@ func getNetworkData(packet gopacket.Packet) (err error) {
 		process_name               string
 		total_payload              int
 		process_data               ProcessData
-		protocol_data              ProtocolData
-		host_data                  HostData
 		src_host, dst_host         string
 		src_port, dst_port         uint32
 		src_protocol, dst_protocol string
 	)
 
 	// Get port information
-	if src_port, dst_port, err = getPortInfo(packet); err != nil {
-		//log.Fatal(err)
-		return err
-	}
-
-	// Get protocol information
-	if src_protocol, dst_protocol, err = getProtocolName(packet); err != nil {
+	if src_port, dst_port, src_protocol, dst_protocol, err = getPortAndProtocolInfo(packet); err != nil {
 		//log.Fatal(err)
 		return err
 	}
@@ -150,25 +142,23 @@ func getNetworkData(packet gopacket.Packet) (err error) {
 	src_mac := strings.ToLower(ethernet_layer.(*layers.Ethernet).SrcMAC.String())
 
 	if _, ok := all_macs[src_mac]; ok { // Upload traffic
-		host_data.Host = dst_host
-		protocol_data.Protocol = dst_protocol
+		process_data.Host.Host = dst_host
+		process_data.Protocol.Protocol = dst_protocol
 
 		process_data.Upload = total_payload
-		host_data.Upload = total_payload
-		protocol_data.Upload = total_payload
+		process_data.Host.Upload = total_payload
+		process_data.Protocol.Upload = total_payload
 	} else { // Download traffic
-		host_data.Host = src_host
-		protocol_data.Protocol = src_protocol
+		process_data.Host.Host = src_host
+		process_data.Protocol.Protocol = src_protocol
 
 		process_data.Download = total_payload
-		host_data.Download = total_payload
-		protocol_data.Download = total_payload
+		process_data.Host.Download = total_payload
+		process_data.Protocol.Download = total_payload
 	}
 
 	process_data.Name = process_name
 	process_data.Update_Time = time.Now().UnixMilli()
-	process_data.Host = host_data
-	process_data.Protocol = protocol_data
 
 	go jsonEncodeProcessData(process_data)
 
@@ -191,37 +181,23 @@ func getNetworkAddresses(packet gopacket.Packet) (src_ip string, dst_ip string, 
 	return "0", "0", errors.New("Packet doesn't contain a Network Layer")
 }
 
-// Returns the port number from the transport layer of a packet
+// Returns the port number and well-known protocol name associated to the port from the transport layer of a packet
 // TODO: Some UDP Packets are being dropped; review those
-func getPortInfo(packet gopacket.Packet) (src_port uint32, dst_port uint32, err error) {
+func getPortAndProtocolInfo(packet gopacket.Packet) (src_port uint32, dst_port uint32, src_protocol string, dst_protocol string, err error) {
 	if transportLayer := packet.TransportLayer(); transportLayer != nil {
 		switch transportLayer.LayerType() {
 		case layers.LayerTypeTCP:
-			return uint32(transportLayer.(*layers.TCP).SrcPort), uint32(transportLayer.(*layers.TCP).DstPort), nil
+			return uint32(transportLayer.(*layers.TCP).SrcPort), uint32(transportLayer.(*layers.TCP).DstPort),
+				transportLayer.(*layers.TCP).SrcPort.String(), transportLayer.(*layers.TCP).DstPort.String(), nil
 		case layers.LayerTypeUDP:
-			return uint32(transportLayer.(*layers.UDP).SrcPort), uint32(transportLayer.(*layers.UDP).DstPort), nil
+			return uint32(transportLayer.(*layers.UDP).SrcPort), uint32(transportLayer.(*layers.UDP).DstPort),
+				transportLayer.(*layers.UDP).SrcPort.String(), transportLayer.(*layers.UDP).DstPort.String(), nil
 		default:
-			return 0, 0, errors.New("Packet contains neither TCP or UDP information")
+			return 0, 0, "", "", errors.New("Packet contains neither TCP or UDP information")
 		}
 	}
 
-	return 0, 0, fmt.Errorf("Packet doesn't contain a Transport Layer")
-}
-
-// Returns protocol name if a port has a well-known port; otherwise, returns only the port number
-func getProtocolName(packet gopacket.Packet) (src_protocol string, dst_protocol string, err error) {
-	if transportLayer := packet.TransportLayer(); transportLayer != nil {
-		switch transportLayer.LayerType() {
-		case layers.LayerTypeTCP:
-			return transportLayer.(*layers.TCP).SrcPort.String(), transportLayer.(*layers.TCP).DstPort.String(), nil
-		case layers.LayerTypeUDP:
-			return transportLayer.(*layers.UDP).SrcPort.String(), transportLayer.(*layers.UDP).DstPort.String(), nil
-		default:
-			return "0", "0", errors.New("Packet contains neither TCP or UDP information")
-		}
-	}
-
-	return "", "", errors.New("Packet doesn't contain a Transport Layer")
+	return 0, 0, "", "", fmt.Errorf("Packet doesn't contain a Transport Layer")
 }
 
 // Get the PID from connections2pid, given source and destination ports
