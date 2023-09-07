@@ -17,8 +17,8 @@ type NetworkInterface struct {
 }
 
 // getMacAddresses returns a list of physical hardware addresses for all devices listed in net.Interfaces()
-func getMacAddresses() (map[string]bool, error) {
-	var macs map[string]bool = map[string]bool{}
+func GetMacAddresses() (macs map[string]bool, err error) {
+	macs = make(map[string]bool)
 	if ifaces, err := net.Interfaces(); err != nil {
 		return macs, err
 	} else {
@@ -32,16 +32,17 @@ func getMacAddresses() (map[string]bool, error) {
 	return macs, nil
 }
 
-// printUsageAndDevices prints the usage instructions for the program as well as a list of network interfaces for the user to choose should they not inform one.
-func printUsageAndDevices() (device string, err error) {
-	fmt.Println("Usage: main -i <interface> [-f <filter> -v]")
+// PrintUsage prints the usage instructions for the program
+func PrintUsage() {
+	fmt.Println("Usage: go run . -i <interface> [-f <filter> -v]")
 	fmt.Println("-i <interface> - Network interface to capture packets on.")
 	fmt.Println("-f <filter> - BPF filter")
 	fmt.Println("-v - Verbose, set it to true for detailed information on the packet processing")
-	fmt.Println()
-
 	fmt.Println("List of available interfaces: ")
+}
 
+// GetInterface shows a list of network interfaces for the user to choose should they not inform one.
+func GetInterfaceFromList() (device string, err error) {
 	if devices, err := pcap.FindAllDevs(); err != nil {
 		return "", err
 	} else {

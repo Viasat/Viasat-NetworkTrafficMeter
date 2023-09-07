@@ -1,294 +1,59 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
-	"github.com/shirou/gopsutil/v3/host"
-	"github.com/shirou/gopsutil/v3/net"
-	"github.com/shirou/gopsutil/v3/process"
 )
-
-type ProcessData struct {
-	Pid         int32
-	Name        string
-	Create_Time int64
-	Update_Time int64
-	Upload      int
-	Download    int
-	Protocol    ProtocolData
-	Host        HostData
-}
-
-type ProtocolData struct {
-	Protocol string
-	Upload   int
-	Download int
-}
-
-type HostData struct {
-	Host     string
-	Upload   int
-	Download int
-}
-
-type ConnectionPorts struct {
-	localAddressPort  uint32
-	remoteAddressPort uint32
-}
 
 var (
-	connections2pid map[ConnectionPorts]int32 = make(map[ConnectionPorts]int32) // Maps any connection (port to another port) to its respective PID
-	all_macs        map[string]bool                                             // A makeshift set for storing the MAC address of all NICs
-	//proc_to_json    chan []byte               = make(chan []byte)               // Channel used to send the JSON data to the websocket server
-
-	dataMutex = sync.RWMutex{}
+	connections2pid     map[ConnectionPorts]int32 = make(map[ConnectionPorts]int32) // Maps any connection (port to another port) to its respective PID
+	getConnectionsMutex                           = sync.RWMutex{}
 )
 
-// FIXME: Performance peaks at 40% CPU usage when downloading, optimize goroutines
-func getConnections(interval int16, verbose *bool) {
-	for {
-		// Get system-wide socket connections
-		connections, err := net.Connections("all")
-
-		// Log any errors
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Map valid connections as {ConnectionPorts : PID}
-		for _, conn := range connections {
-
-			// Get this connection's PID
-			pid := conn.Pid
-
-			// Skip this iteration if either local or remote IPs don't exist
-			if localAddr := conn.Laddr.IP; localAddr == "" {
-				// log.Print("Local Address doesn't exist")
-				continue
-			}
-
-			if remoteAddr := conn.Raddr.IP; remoteAddr == "" {
-				// log.Print("Remote Address doesn't exist")
-				continue
-			}
-
-			// Add the PID as entry in our map, using both ports as the key
-			conn_ports := ConnectionPorts{localAddressPort: conn.Laddr.Port, remoteAddressPort: conn.Raddr.Port}
-
-			dataMutex.Lock()
-			connections2pid[conn_ports] = pid
-			dataMutex.Unlock()
-		}
-
-		if *verbose {
-			log.Println("Connections refreshed")
-		}
-
-		time.Sleep(time.Second * time.Duration(interval))
-	}
-}
-
-func getNetworkData(packet gopacket.Packet) (err error) {
+func main() {
 	var (
-		process_name               string
-		total_payload              int
-		process_data               ProcessData
-		src_host, dst_host         string
-		src_port, dst_port         uint32
-		src_protocol, dst_protocol string
+		allMacs               map[string]bool                                               // A makeshift set for storing the MAC address of all NICs
+		activeConnections     map[string]*ConnectionData = make(map[string]*ConnectionData) // Maps all interactions between processes and the network. The first entry represents the total throughput
+		areConnectionsEncoded chan bool                  = make(chan bool, 1)               // Channel used to signal if the activeConnections maps were encoded, so that they can be reset for new connections
 	)
 
-	// Get port information
-	if src_port, dst_port, src_protocol, dst_protocol, err = getPortAndProtocolInfo(packet); err != nil {
-		//log.Fatal(err)
-		return err
-	}
-
-	// Get PID from 'connection2pid' map
-	if process_data.Pid, err = getPidFromConnection(src_port, dst_port); err != nil {
-		//log.Fatal(err)
-		return err
-	}
-
-	// Get process name and creation time based on PID
-	if process_data.Create_Time, process_name, err = getProcessInfo(process_data.Pid); err != nil {
-		//log.Fatal(err)
-		return err
-	}
-
-	// Get packet payload
-	if total_payload, err = getPayload(packet); err != nil {
-		//log.Fatal(err)
-		return err
-	}
-
-	// Get host address
-	if src_host, dst_host, err = getNetworkAddresses(packet); err != nil {
-		//log.Fatal(err)
-		return err
-	}
-
-	// Compare the packet's MAC address to the MAC addresses of this machine
-	ethernet_layer := packet.Layer(layers.LayerTypeEthernet)
-	src_mac := strings.ToLower(ethernet_layer.(*layers.Ethernet).SrcMAC.String())
-
-	if _, ok := all_macs[src_mac]; ok { // Upload traffic
-		process_data.Host.Host = dst_host
-		process_data.Protocol.Protocol = dst_protocol
-
-		process_data.Upload = total_payload
-		process_data.Host.Upload = total_payload
-		process_data.Protocol.Upload = total_payload
-	} else { // Download traffic
-		process_data.Host.Host = src_host
-		process_data.Protocol.Protocol = src_protocol
-
-		process_data.Download = total_payload
-		process_data.Host.Download = total_payload
-		process_data.Protocol.Download = total_payload
-	}
-
-	process_data.Name = process_name
-	process_data.Update_Time = time.Now().UnixMilli()
-
-	go jsonEncodeProcessData(process_data)
-
-	return nil
-}
-
-// Returns source and destination addresses from a packet containing either an IPv4 or IPv6 layer
-func getNetworkAddresses(packet gopacket.Packet) (src_ip string, dst_ip string, err error) {
-	if netLayer := packet.NetworkLayer(); netLayer != nil {
-		switch netLayer.LayerType() {
-		case layers.LayerTypeIPv4:
-			return netLayer.(*layers.IPv4).SrcIP.String(), netLayer.(*layers.IPv4).DstIP.String(), nil
-		case layers.LayerTypeIPv6:
-			return netLayer.(*layers.IPv6).SrcIP.String(), netLayer.(*layers.IPv6).DstIP.String(), nil
-		default:
-			return "", "", errors.New("Packet contains neither IPv4 or IPv6 information")
-		}
-	}
-
-	return "0", "0", errors.New("Packet doesn't contain a Network Layer")
-}
-
-// Returns the port number and well-known protocol name associated to the port from the transport layer of a packet
-// TODO: Some UDP Packets are being dropped; review those
-func getPortAndProtocolInfo(packet gopacket.Packet) (src_port uint32, dst_port uint32, src_protocol string, dst_protocol string, err error) {
-	if transportLayer := packet.TransportLayer(); transportLayer != nil {
-		switch transportLayer.LayerType() {
-		case layers.LayerTypeTCP:
-			return uint32(transportLayer.(*layers.TCP).SrcPort), uint32(transportLayer.(*layers.TCP).DstPort),
-				transportLayer.(*layers.TCP).SrcPort.String(), transportLayer.(*layers.TCP).DstPort.String(), nil
-		case layers.LayerTypeUDP:
-			return uint32(transportLayer.(*layers.UDP).SrcPort), uint32(transportLayer.(*layers.UDP).DstPort),
-				transportLayer.(*layers.UDP).SrcPort.String(), transportLayer.(*layers.UDP).DstPort.String(), nil
-		default:
-			return 0, 0, "", "", errors.New("Packet contains neither TCP or UDP information")
-		}
-	}
-
-	return 0, 0, "", "", fmt.Errorf("Packet doesn't contain a Transport Layer")
-}
-
-// Get the PID from connections2pid, given source and destination ports
-func getPidFromConnection(src_port, dst_port uint32) (pid int32, err error) {
-	var conn_port = ConnectionPorts{localAddressPort: src_port, remoteAddressPort: dst_port}
-	var conn_port_inv = ConnectionPorts{localAddressPort: dst_port, remoteAddressPort: src_port}
-
-	dataMutex.Lock()
-	if pid, ok := connections2pid[conn_port]; ok {
-		dataMutex.Unlock()
-		return pid, nil
-	} else if pid, ok := connections2pid[conn_port_inv]; ok {
-		dataMutex.Unlock()
-		return pid, nil
-	}
-
-	dataMutex.Unlock()
-
-	return 0, errors.New("PID not found for given ports")
-}
-
-// Get process creation time and name based on its PID
-func getProcessInfo(pid int32) (create_time int64, proc_name string, err error) {
-	if process, err := process.NewProcess(pid); err != nil {
-		return 0, "", err
-	} else {
-		var time int64
-		var name string
-
-		// Get process creation time; otherwise, treat it as a system process and use boot time instead.
-		if time, err = process.CreateTime(); err != nil {
-			boot_time, err := host.BootTime()
-
-			if err != nil {
-				return 0, "", err
-			}
-
-			time = int64(boot_time)
-		}
-
-		if name, err = process.Name(); err != nil {
-			return 0, "", err
-		} else {
-			return time, name, nil
-		}
-	}
-}
-
-// Get payload size from packet
-// TODO: Review how the payload is collected. Some packets don't have payload, but the headers are still present in the network flow
-func getPayload(packet gopacket.Packet) (payload int, err error) {
-	if app_layer := packet.ApplicationLayer(); app_layer != nil {
-		return len(app_layer.Payload()), nil // Add total payload bytes if ApplicationLayer exists
-	} else if trans_layer := packet.TransportLayer(); trans_layer != nil {
-		return len(trans_layer.LayerPayload()), nil // Otherwise, add total payload bytes if TransportLayer exists
-	}
-
-	return 0, errors.New("Unable to extract payload size from both Application and Transport layers")
-}
-
-func main() {
 	// Define command-line flags for the network interface and filter
-	interface_name := flag.String("i", "", "Network interface to capture packets on")
+	interfaceName := flag.String("i", "", "Network interface to capture packets on")
 	filter := flag.String("f", "", "BPF filter for capturing specific packets")
 	verbose := flag.Bool("v", false, "Flag for displaying processing information")
 
 	flag.Parse() // Parse command-line arguments
 
 	// Check if the interface name was provided; if not, show instructions and list of available interfaces
-	if *interface_name == "" {
-		if dev, err := printUsageAndDevices(); err != nil {
+	if *interfaceName == "" {
+		PrintUsage()
+		if dev, err := GetInterfaceFromList(); err != nil {
 			log.Fatal(err)
 		} else {
-			*interface_name = dev // If the interface choice is valid, get its name for initializing the handle
+			*interfaceName = dev // If the interface choice is valid, get its name for initializing the handle
 		}
 	}
 
 	// Set MAC addresses
-	if macs, err := getMacAddresses(); err != nil {
+	if macs, err := GetMacAddresses(); err != nil {
 		log.Fatal("Unable to retrieve MAC addresses")
 	} else {
-		all_macs = macs
+		allMacs = macs
 	}
 
 	// Open the specified network interface for packet capture
-	handle, err := pcap.OpenLive(*interface_name, 1600, true, pcap.BlockForever)
+	handle, err := pcap.OpenLive(*interfaceName, 1600, true, pcap.BlockForever)
 	if err != nil {
 		log.Fatal(err) // Log any error
 	}
 
-	defer handle.Close() // Ensure the handle is closed when finished
+	// Ensure the handle is closed when finished
+	defer handle.Close()
 
 	// Apply the BPF filter if provided
 	if *filter != "" {
@@ -300,8 +65,11 @@ func main() {
 	// Starts the Websocket server
 	go startServer()
 
-	// Create new goroutine for mapping connections to their respective PID
-	go getConnections(5, verbose)
+	// Create a goroutine for mapping connections to their respective PID
+	go GetSocketConnections(5, verbose)
+
+	// Create a goroutine for encoding into JSON the activeConnections map
+	//go EncodeActiveConnections(&activeConnections, areConnectionsEncoded)
 
 	// Create a packet source to process packets
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
@@ -309,9 +77,18 @@ func main() {
 	// Loop through packets from the packet source
 	for packet := range packetSource.Packets() {
 		// Print process data
-		if err := getNetworkData(packet); err != nil && *verbose {
+		reset, err := GetNetworkData(packet, allMacs, areConnectionsEncoded, activeConnections)
+
+		if err != nil && *verbose {
 			log.Println(err.Error())
 		}
+
+		if reset {
+			activeConnections = make(map[string]*ConnectionData)
+		}
+
 	}
-	fmt.Println() // Print a newline at the end for cleaner termination
+
+	// Print a newline at the end for cleaner termination
+	fmt.Println()
 }
