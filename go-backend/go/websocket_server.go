@@ -11,6 +11,7 @@ import (
 
 var (
 	jsonData chan []byte = make(chan []byte) // Channel used to send the JSON data to the websocket server
+	jsonStr  []byte
 )
 
 // EncodeActiveConnections encodes the activeConnections data to JSON and sends it to the Websocket server.

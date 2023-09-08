@@ -53,11 +53,27 @@ type ConnectionPorts struct {
 	remoteAddressPort uint32
 }
 
+var (
+	pid                      int32
+	createTime               int64
+	processName              string
+	payload                  int
+	srcHost, dstHost         string
+	srcPort, dstPort         uint32
+	srcProtocol, dstProtocol string
+	connectionData           *ConnectionData
+)
+
 // GetConnections maps any socket connection to its PID. The interval parameter is the refresh rate (in seconds) of this function.
 func GetSocketConnections(interval int16, verbose *bool) {
+	var (
+		connections []ps_net.ConnectionStat
+		err         error
+	)
+
 	for {
 		// Get system-wide socket connections
-		connections, err := ps_net.Connections("all")
+		connections, err = ps_net.Connections("all")
 
 		// Log any errors
 		if err != nil {
@@ -100,16 +116,6 @@ func GetSocketConnections(interval int16, verbose *bool) {
 // FIXME: CPU usage increases the more packets are being processed per second. Review possible bottlenecks using 'pprof'
 // GetNetworkData processes a packet into a ConnectionData object and stores it into the activeConnections map
 func GetNetworkData(packet gopacket.Packet, allMacs map[string]bool, activeConnections map[string]*ConnectionData) (err error) {
-	var (
-		pid                      int32
-		createTime               int64
-		processName              string
-		payload                  int
-		srcHost, dstHost         string
-		srcPort, dstPort         uint32
-		srcProtocol, dstProtocol string
-		connectionData           *ConnectionData
-	)
 
 	// Get port information
 	if srcPort, dstPort, srcProtocol, dstProtocol, err = GetPortAndProtocol(packet); err != nil {
