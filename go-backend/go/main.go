@@ -69,7 +69,7 @@ func main() {
 	go GetSocketConnections(5, verbose)
 
 	// Create a goroutine for encoding into JSON the activeConnections map
-	//go EncodeActiveConnections(&activeConnections, areConnectionsEncoded)
+	go EncodeActiveConnections(&activeConnections, areConnectionsEncoded)
 
 	// Create a packet source to process packets
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
