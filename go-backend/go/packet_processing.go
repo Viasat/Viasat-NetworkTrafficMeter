@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	ps_process "github.com/shirou/gopsutil/v3/process"
 )
 
+// ConnectionData stores the name of a process, its total download and upload and specific information about its subprocesses, protocols and hosts.
 type ConnectionData struct {
 	Name      string
 	Upload    int
@@ -23,6 +23,7 @@ type ConnectionData struct {
 	Hosts     map[string]*HostData
 }
 
+// ProcessData stores a Process' ID, its individual network consumption as well as time of creation and last update.
 type ProcessData struct {
 	Pid         int32
 	Create_Time int64
@@ -31,18 +32,22 @@ type ProcessData struct {
 	Download    int
 }
 
+// ProtocolData stores the port number along with its well-known protocol name (if it has one) and its individual network consumption.
 type ProtocolData struct {
 	Protocol_Name string
 	Upload        int
 	Download      int
 }
 
+// HostData stores the IP address of an external host communicating with the associated process, as well as its individual network consumption.
 type HostData struct {
 	Host_Name string
 	Upload    int
 	Download  int
 }
 
+// ConnectionPorts serves as a tuple for storing the local address port and remote address port.
+// This is used as a key for mapping PIDs to the port used by the process
 type ConnectionPorts struct {
 	localAddressPort  uint32
 	remoteAddressPort uint32
@@ -92,8 +97,9 @@ func GetSocketConnections(interval int16, verbose *bool) {
 	}
 }
 
-// FIXME: Performance peaks at 50% CPU usage when downloading, optimize goroutines
-func GetNetworkData(packet gopacket.Packet, allMacs map[string]bool, areConnectionsEncoded chan bool, activeConnections map[string]*ConnectionData) (resetConnections bool, err error) {
+// FIXME: CPU usage increases the more packets are being processed per second. Review possible bottlenecks using 'pprof'
+// GetNetworkData processes a packet into a ConnectionData object and stores it into the activeConnections map
+func GetNetworkData(packet gopacket.Packet, allMacs map[string]bool, activeConnections map[string]*ConnectionData) (err error) {
 	var (
 		pid                      int32
 		createTime               int64
@@ -105,43 +111,34 @@ func GetNetworkData(packet gopacket.Packet, allMacs map[string]bool, areConnecti
 		connectionData           *ConnectionData
 	)
 
-	select {
-	case encoded := <-areConnectionsEncoded:
-		if encoded {
-			resetConnections = true
-		}
-	default:
-		resetConnections = false
-	}
-
 	// Get port information
 	if srcPort, dstPort, srcProtocol, dstProtocol, err = GetPortAndProtocol(packet); err != nil {
 		//log.Fatal(err)
-		return resetConnections, err
+		return err
 	}
 
 	// Get PID from 'connection2pid' map
 	if pid, err = GetPidFromConnection(srcPort, dstPort); err != nil {
 		//log.Fatal(err)
-		return resetConnections, err
+		return err
 	}
 
 	// Get process name and creation time based on PID
 	if createTime, processName, err = GetProcessData(pid); err != nil {
 		//log.Fatal(err)
-		return resetConnections, err
+		return err
 	}
 
 	// Get packet payload
 	if payload, err = GetPayload(packet); err != nil {
 		//log.Fatal(err)
-		return resetConnections, err
+		return err
 	}
 
 	// Get host address
 	if srcHost, dstHost, err = GetNetworkAddresses(packet); err != nil {
 		//log.Fatal(err)
-		return resetConnections, err
+		return err
 	}
 
 	// Create a new connection in the active connections map if one doesn't exist
@@ -164,11 +161,12 @@ func GetNetworkData(packet gopacket.Packet, allMacs map[string]bool, areConnecti
 		UpdateConnection(connectionData, pid, createTime, srcProtocol, srcHost, payload, 0)
 	}
 
-	return resetConnections, nil
+	return nil
 }
 
 // GetNworkaddreses Returns source and destination IP addresses from a packet containing either an IPv4 or IPv6 layer
 func GetNetworkAddresses(packet gopacket.Packet) (srcIp string, dstIp string, err error) {
+	// Check if network layer exists and is of type IPv4 and IPv6
 	if netLayer := packet.NetworkLayer(); netLayer != nil {
 		switch netLayer.LayerType() {
 		case layers.LayerTypeIPv4:
@@ -186,6 +184,7 @@ func GetNetworkAddresses(packet gopacket.Packet) (srcIp string, dstIp string, er
 // GetPortAndPortocolReturns the port number and well-known protocol name associated to the port from the transport layer of a packet
 // TODO: Some UDP Packets are being dropped; review those
 func GetPortAndProtocol(packet gopacket.Packet) (srcPort uint32, dstPort uint32, srcProtocol string, dstProtocol string, err error) {
+	// Check if transport layer exists and is of type TCP/UDP
 	if transportLayer := packet.TransportLayer(); transportLayer != nil {
 		switch transportLayer.LayerType() {
 		case layers.LayerTypeTCP:
@@ -199,31 +198,34 @@ func GetPortAndProtocol(packet gopacket.Packet) (srcPort uint32, dstPort uint32,
 		}
 	}
 
-	return 0, 0, "", "", fmt.Errorf("Packet doesn't contain a Transport Layer")
+	return 0, 0, "", "", errors.New("Packet doesn't contain a Transport Layer")
 }
 
 // Get the PID from connections2pid, given source and destination ports
 func GetPidFromConnection(srcPort, dstPort uint32) (pid int32, err error) {
+	// Createa tuple for the ports in both directions, depending if its download or upload
 	var conn_port = ConnectionPorts{localAddressPort: srcPort, remoteAddressPort: dstPort}
 	var conn_port_inv = ConnectionPorts{localAddressPort: dstPort, remoteAddressPort: srcPort}
 
+	// Lock the connections2pid map
 	getConnectionsMutex.Lock()
-	defer getConnectionsMutex.Unlock() //TODO: Check if defer works in this case
+
+	// Ensure its unlocked after this functions returns
+	defer getConnectionsMutex.Unlock()
+
+	// Check if these ports are linked to a PID
 	if pid, ok := connections2pid[conn_port]; ok {
-		//dataMutex.Unlock()
 		return pid, nil
 	} else if pid, ok := connections2pid[conn_port_inv]; ok {
-		//dataMutex.Unlock()
 		return pid, nil
 	}
-
-	//dataMutex.Unlock()
 
 	return 0, errors.New("PID not found for given ports")
 }
 
 // Get process creation time and name based on its PID
 func GetProcessData(pid int32) (createTime int64, procName string, err error) {
+	// Check if process exists for the given pid
 	if process, err := ps_process.NewProcess(pid); err != nil {
 		return 0, "", err
 	} else {
@@ -236,6 +238,7 @@ func GetProcessData(pid int32) (createTime int64, procName string, err error) {
 			}
 		}
 
+		// Check if process name can be retrieved
 		if procName, err = process.Name(); err != nil {
 			return 0, "", err
 		} else {
@@ -256,7 +259,7 @@ func GetPayload(packet gopacket.Packet) (payload int, err error) {
 	return 0, errors.New("Unable to extract payload size from both Application and Transport layers")
 }
 
-// CreateConnection creates a new ConnectionData object to be used in the active connections map
+// CreateConnection creates a new ConnectionData object to be used in the activeConnections map
 func CreateConnection(process_name string) (connection *ConnectionData) {
 	connection = &ConnectionData{Name: process_name}
 	connection.Processes = make(map[int32]*ProcessData)
@@ -268,18 +271,22 @@ func CreateConnection(process_name string) (connection *ConnectionData) {
 
 // UpdateConnection updates a ConnectionData object according to the packet data
 func UpdateConnection(connection *ConnectionData, pid int32, create_time int64, protocol string, host string, download int, upload int) {
+	// Create a new entry in the Processes map if the PID is not found
 	if _, ok := connection.Processes[pid]; !ok {
 		connection.Processes[pid] = &ProcessData{Pid: pid, Create_Time: create_time}
 	}
 
+	// Create a new entry in the Protocols map if the protocol is not found
 	if _, ok := connection.Protocols[protocol]; !ok {
 		connection.Protocols[protocol] = &ProtocolData{Protocol_Name: protocol}
 	}
 
+	// Create a new entry in the Hosts map if the host is not found
 	if _, ok := connection.Hosts[host]; !ok {
 		connection.Hosts[host] = &HostData{Host_Name: host}
 	}
 
+	// Update all network statistics as well as the time this connection was updated
 	connection.Download += download
 	connection.Upload += upload
 
