@@ -23,6 +23,16 @@ type ConnectionData struct {
 	Hosts     map[string]*HostData
 }
 
+type ProcessedPacket struct {
+	Name        string
+	Pid         int32
+	Create_Time int64
+	Protocol    string
+	Host        string
+	Upload      int
+	Download    int
+}
+
 // ProcessData stores a Process' ID, its individual network consumption as well as time of creation and last update.
 type ProcessData struct {
 	Pid         int32
@@ -61,8 +71,47 @@ var (
 	srcHost, dstHost         string
 	srcPort, dstPort         uint32
 	srcProtocol, dstProtocol string
+	processedPacket          ProcessedPacket
 	connectionData           *ConnectionData
 )
+
+// PacketProcesser takes a packet and turns it into a ProcessedPacket
+func PacketProcesser(packet <-chan gopacket.Packet, allMacs map[string]bool, processedPacketChan chan<- ProcessedPacket) {
+	for {
+		if processedPacket, err := GetNetworkData(<-packet, allMacs); err == nil {
+			processedPacketChan <- processedPacket
+		}
+	}
+}
+
+// ConnectionsBufferer maps ProcessedPackets into a ConnectionData buffer map every 1 second
+func ConnectionsBufferer(processedPacketChan <-chan ProcessedPacket, activeConnectionsChan chan<- map[string]*ConnectionData) {
+	var activeConnections map[string]*ConnectionData = make(map[string]*ConnectionData)
+	var parserTicker *time.Ticker = time.NewTicker(1 * time.Second)
+
+	for {
+		select {
+		case <-parserTicker.C:
+			activeConnectionsChan <- activeConnections
+			activeConnections = make(map[string]*ConnectionData)
+
+			select {
+			case processedPacket := <-processedPacketChan:
+				UpdateConnection(processedPacket, activeConnections)
+
+			default:
+			}
+
+		default:
+			select {
+			case processedPacket := <-processedPacketChan:
+				UpdateConnection(processedPacket, activeConnections)
+			default:
+			}
+
+		}
+	}
+}
 
 // GetConnections maps any socket connection to its PID. The interval parameter is the refresh rate (in seconds) of this function.
 func GetSocketConnections(interval int16, verbose *bool) {
@@ -115,46 +164,37 @@ func GetSocketConnections(interval int16, verbose *bool) {
 
 // FIXME: CPU usage increases the more packets are being processed per second. Review possible bottlenecks using 'pprof'
 // GetNetworkData processes a packet into a ConnectionData object and stores it into the activeConnections map
-func GetNetworkData(packet gopacket.Packet, allMacs map[string]bool, activeConnections map[string]*ConnectionData) (err error) {
+func GetNetworkData(packet gopacket.Packet, allMacs map[string]bool) (processedPacket ProcessedPacket, err error) {
 
 	// Get port information
 	if srcPort, dstPort, srcProtocol, dstProtocol, err = GetPortAndProtocol(packet); err != nil {
 		//log.Fatal(err)
-		return err
+		return
 	}
 
 	// Get PID from 'connection2pid' map
 	if pid, err = GetPidFromConnection(srcPort, dstPort); err != nil {
 		//log.Fatal(err)
-		return err
+		return
 	}
 
 	// Get process name and creation time based on PID
 	if createTime, processName, err = GetProcessData(pid); err != nil {
 		//log.Fatal(err)
-		return err
+		return
 	}
 
 	// Get packet payload
 	if payload, err = GetPayload(packet); err != nil {
 		//log.Fatal(err)
-		return err
+		return
 	}
 
 	// Get host address
 	if srcHost, dstHost, err = GetNetworkAddresses(packet); err != nil {
 		//log.Fatal(err)
-		return err
+		return
 	}
-
-	// Create a new connection in the active connections map if one doesn't exist
-	if _, ok := activeConnections[processName]; !ok {
-		connection := CreateConnection(processName)
-		activeConnections[processName] = connection
-	}
-
-	// Get connection data from active connections
-	connectionData = activeConnections[processName]
 
 	// Compare the packet's MAC address to the MAC addresses of this machine
 	ethernet_layer := packet.Layer(layers.LayerTypeEthernet)
@@ -162,12 +202,11 @@ func GetNetworkData(packet gopacket.Packet, allMacs map[string]bool, activeConne
 
 	// Update connection data
 	if _, ok := allMacs[srcMac]; ok { // Upload traffic
-		UpdateConnection(connectionData, pid, createTime, dstProtocol, dstHost, 0, payload)
+		return ProcessedPacket{processName, pid, createTime, dstProtocol, dstHost, payload, 0}, nil
 	} else { // Download traffic
-		UpdateConnection(connectionData, pid, createTime, srcProtocol, srcHost, payload, 0)
+		return ProcessedPacket{processName, pid, createTime, srcProtocol, srcHost, 0, payload}, nil
 	}
 
-	return nil
 }
 
 // GetNworkaddreses Returns source and destination IP addresses from a packet containing either an IPv4 or IPv6 layer
@@ -276,33 +315,39 @@ func CreateConnection(process_name string) (connection *ConnectionData) {
 }
 
 // UpdateConnection updates a ConnectionData object according to the packet data
-func UpdateConnection(connection *ConnectionData, pid int32, create_time int64, protocol string, host string, download int, upload int) {
+func UpdateConnection(processedPacket ProcessedPacket, activeConnections map[string]*ConnectionData) {
+	if _, ok := activeConnections[processedPacket.Name]; !ok {
+		activeConnections[processedPacket.Name] = CreateConnection(processedPacket.Name)
+	}
+
+	connectionData = activeConnections[processedPacket.Name]
+
 	// Create a new entry in the Processes map if the PID is not found
-	if _, ok := connection.Processes[pid]; !ok {
-		connection.Processes[pid] = &ProcessData{Pid: pid, Create_Time: create_time}
+	if _, ok := connectionData.Processes[processedPacket.Pid]; !ok {
+		connectionData.Processes[processedPacket.Pid] = &ProcessData{Pid: processedPacket.Pid, Create_Time: processedPacket.Create_Time}
 	}
 
 	// Create a new entry in the Protocols map if the protocol is not found
-	if _, ok := connection.Protocols[protocol]; !ok {
-		connection.Protocols[protocol] = &ProtocolData{Protocol_Name: protocol}
+	if _, ok := connectionData.Protocols[processedPacket.Protocol]; !ok {
+		connectionData.Protocols[processedPacket.Protocol] = &ProtocolData{Protocol_Name: processedPacket.Protocol}
 	}
 
 	// Create a new entry in the Hosts map if the host is not found
-	if _, ok := connection.Hosts[host]; !ok {
-		connection.Hosts[host] = &HostData{Host_Name: host}
+	if _, ok := connectionData.Hosts[processedPacket.Host]; !ok {
+		connectionData.Hosts[processedPacket.Host] = &HostData{Host_Name: processedPacket.Host}
 	}
 
 	// Update all network statistics as well as the time this connection was updated
-	connection.Download += download
-	connection.Upload += upload
+	connectionData.Download += processedPacket.Download
+	connectionData.Upload += processedPacket.Upload
 
-	connection.Processes[pid].Download += download
-	connection.Processes[pid].Upload += upload
-	connection.Processes[pid].Update_Time = time.Now().UnixMilli()
+	connectionData.Processes[processedPacket.Pid].Download += processedPacket.Download
+	connectionData.Processes[processedPacket.Pid].Upload += processedPacket.Upload
+	connectionData.Processes[processedPacket.Pid].Update_Time = time.Now().UnixMilli()
 
-	connection.Protocols[protocol].Download += download
-	connection.Protocols[protocol].Upload += upload
+	connectionData.Protocols[processedPacket.Protocol].Download += processedPacket.Download
+	connectionData.Protocols[processedPacket.Protocol].Upload += processedPacket.Upload
 
-	connection.Hosts[host].Download += download
-	connection.Hosts[host].Upload += upload
+	connectionData.Hosts[processedPacket.Host].Download += processedPacket.Download
+	connectionData.Hosts[processedPacket.Host].Upload += processedPacket.Upload
 }

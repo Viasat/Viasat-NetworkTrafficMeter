@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"time"
 
 	"nhooyr.io/websocket"
 )
@@ -19,28 +18,19 @@ var (
 When the map has been encoded, this functions sends a signal through the 'areConnectionsEncoded' channel to the main function
 to indicate that the activeConnections map should be reset.
 */
-func EncodeActiveConnections(activeConnections *map[string]*ConnectionData, areConnectionsEncoded chan bool, verbose *bool) {
-	for {
-		// Encode the activeConnections map to JSON, and log any errors
-		if jsonStr, err := json.Marshal(*activeConnections); err != nil {
+func EncodeActiveConnections(activeConnections <-chan map[string]*ConnectionData, noClient *bool) {
+	for connections := range activeConnections {
+		if jsonStr, err := json.Marshal(connections); err != nil {
 			log.Println(err.Error())
 		} else {
-			// Blocking channel communication, so that this functions awaits for the websocket to send the previous data
-			jsonData <- jsonStr
-
-			// Non-blocking channel communication, so that it won't block the main function if packets aren't being received
-			select {
-			case areConnectionsEncoded <- true:
-				if *verbose {
-					log.Println("EncodeActiveConnections: Reset active connections")
-				}
-			default:
+			// Send JSON data to websocket if the 'noClient' flag is not set
+			if *noClient {
+				log.Println(connections)
+			} else {
+				jsonData <- jsonStr
 			}
 		}
-
-		time.Sleep(1 * time.Second)
 	}
-
 }
 
 // WebsocketHandler opens the Websocket Server, waits for a connection and sends the 'jsonData' to the client

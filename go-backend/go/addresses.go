@@ -35,9 +35,10 @@ func GetMacAddresses() (macs map[string]bool, err error) {
 // PrintUsage prints the usage instructions for the program
 func PrintUsage() {
 	fmt.Println("Usage: go run . -i <interface> [-f <filter> -v]")
-	fmt.Println("-i <interface> - Network interface to capture packets on.")
-	fmt.Println("-f <filter> - BPF filter")
-	fmt.Println("-v - Verbose, set it to true for detailed information on the packet processing")
+	fmt.Println("-i <interface> - Network interface to capture packets on")
+	fmt.Println("-f <filter> - BPF filter for capturing specific packets")
+	fmt.Println("-v - Flag for displaying processing information")
+	fmt.Println("-no-client - Runs the backend without a websocket server. If true, the data is printed to the console.")
 	fmt.Println("List of available interfaces: ")
 }
 
