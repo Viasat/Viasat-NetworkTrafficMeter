@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"nhooyr.io/websocket"
@@ -18,8 +19,9 @@ var (
 When the map has been encoded, this function sends a signal through the 'areProcessesEncoded' channel to the main function
 to indicate that the activeProcesses map should be reset.
 */
-func ParseActiveProcesses(activeProcesses *map[string]*ActiveProcess, areProcessesEncoded chan bool) {
+func ParseActiveProcesses(activeProcesses *map[string]*ActiveProcess, areProcessesEncoded chan bool, activeProcessesMutex *sync.RWMutex) {
 	for {
+		activeProcessesMutex.Lock()
 		// Encode the activeProcesses map to JSON, and log any errors
 		if jsonStr, err := json.Marshal(*activeProcesses); err != nil {
 			log.Println(err.Error())
@@ -33,6 +35,7 @@ func ParseActiveProcesses(activeProcesses *map[string]*ActiveProcess, areProcess
 			default:
 			}
 		}
+		activeProcessesMutex.Unlock()
 
 		time.Sleep(1 * time.Second)
 	}

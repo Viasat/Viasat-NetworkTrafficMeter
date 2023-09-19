@@ -84,7 +84,7 @@ func main() {
 	go GetSocketConnections(5, &getConnectionsMutex)
 
 	// Parse the active processes into JSON in intervals of 1 second.
-	go ParseActiveProcesses(&activeProcesses, areProcessesEncoded)
+	go ParseActiveProcesses(&activeProcesses, areProcessesEncoded, &activeProcessesMutex)
 
 	// Get packets and process them into useful data.
 	for {
