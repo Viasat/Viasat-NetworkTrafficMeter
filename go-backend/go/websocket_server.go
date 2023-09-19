@@ -11,18 +11,17 @@ import (
 
 var (
 	jsonData chan []byte = make(chan []byte) // Channel used to send the JSON data to the websocket server
-	jsonStr  []byte
 )
 
-// EncodeActiveConnections encodes the activeConnections data to JSON and sends it to the Websocket server.
+// ParseActiveProcesses parse the activeProcesses data to JSON and sends it to the Websocket server.
 /*
-When the map has been encoded, this functions sends a signal through the 'areConnectionsEncoded' channel to the main function
-to indicate that the activeConnections map should be reset.
+When the map has been encoded, this function sends a signal through the 'areProcessesEncoded' channel to the main function
+to indicate that the activeProcesses map should be reset.
 */
-func EncodeActiveConnections(activeConnections *map[string]*ConnectionData, areConnectionsEncoded chan bool, verbose *bool) {
+func ParseActiveProcesses(activeProcesses *map[string]*ActiveProcess, areProcessesEncoded chan bool) {
 	for {
-		// Encode the activeConnections map to JSON, and log any errors
-		if jsonStr, err := json.Marshal(*activeConnections); err != nil {
+		// Encode the activeProcesses map to JSON, and log any errors
+		if jsonStr, err := json.Marshal(*activeProcesses); err != nil {
 			log.Println(err.Error())
 		} else {
 			// Blocking channel communication, so that this functions awaits for the websocket to send the previous data
@@ -30,17 +29,13 @@ func EncodeActiveConnections(activeConnections *map[string]*ConnectionData, areC
 
 			// Non-blocking channel communication, so that it won't block the main function if packets aren't being received
 			select {
-			case areConnectionsEncoded <- true:
-				if *verbose {
-					log.Println("EncodeActiveConnections: Reset active connections")
-				}
+			case areProcessesEncoded <- true:
 			default:
 			}
 		}
 
 		time.Sleep(1 * time.Second)
 	}
-
 }
 
 // WebsocketHandler opens the Websocket Server, waits for a connection and sends the 'jsonData' to the client

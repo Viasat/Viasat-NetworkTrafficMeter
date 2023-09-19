@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/google/gopacket/pcap"
 )
@@ -16,15 +15,14 @@ type NetworkInterface struct {
 	device_name string
 }
 
-// getMacAddresses returns a list of physical hardware addresses for all devices listed in net.Interfaces()
-func GetMacAddresses() (macs map[string]bool, err error) {
-	macs = make(map[string]bool)
+// GetMacAddresses returns an array of physical hardware addresses for all devices listed in net.Interfaces().
+func GetMacAddresses() (macs []string, err error) {
 	if ifaces, err := net.Interfaces(); err != nil {
 		return macs, err
 	} else {
 		for _, device := range ifaces {
 			if device.HardwareAddr.String() != "" {
-				macs[strings.ToLower(device.HardwareAddr.String())] = true
+				macs = append(macs, device.HardwareAddr.String())
 			}
 		}
 	}

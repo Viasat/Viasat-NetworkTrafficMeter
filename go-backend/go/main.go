@@ -2,30 +2,42 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"sync"
 
 	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 )
 
 var (
-	connections2pid     map[ConnectionPorts]int32 = make(map[ConnectionPorts]int32) // Maps any connection (port to another port) to its respective PID.
-	getConnectionsMutex                           = sync.RWMutex{}                  // A mutual exclusion lock to prevent simultaneous read/write access to the 'connections2pid' map
+	connections2pid map[SocketConnectionPorts]SocketConnectionProcess = make(map[SocketConnectionPorts]SocketConnectionProcess)
+	activeProcesses map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
+
+	eth  layers.Ethernet
+	ipv4 layers.IPv4
+	ipv6 layers.IPv6
+	tcp  layers.TCP
+	udp  layers.UDP
 )
 
 func main() {
 	var (
-		allMacs               map[string]bool                                               // A set for storing the MAC address of all network interfaces.
-		activeConnections     map[string]*ConnectionData = make(map[string]*ConnectionData) // Maps all interactions between processes and the network.
-		areConnectionsEncoded chan bool                  = make(chan bool, 1)               // Channel used to signal if the activeConnections maps were encoded, so that they can be reset for new connections.
+		packet     gopacket.Packet // packet stores the packet information to extract the payload.
+		packetData []byte          // packetData Stores the packet data to use on the layer decoder.
+		payload    int             // payload stores the packet payload in bytes.
+		macs       []string        // macs stores an array of this machine's MAC addresses.
+		err        error           // err stores any errors from function returns.
+
+		getConnectionsMutex  = sync.RWMutex{} // getConnectionMutex is a mutex used to control read/write operations in the connections2pid map.
+		activeProcessesMutex = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
+
+		areProcessesEncoded chan bool = make(chan bool, 1)
 	)
 
 	// Define command-line flags for the network interface and filter
 	interfaceName := flag.String("i", "", "Network interface to capture packets on")
 	filter := flag.String("f", "", "BPF filter for capturing specific packets")
-	verbose := flag.Bool("v", false, "Flag for displaying processing information")
 
 	// Parse command-line arguments
 	flag.Parse()
@@ -41,10 +53,8 @@ func main() {
 	}
 
 	// Set MAC addresses
-	if macs, err := GetMacAddresses(); err != nil {
+	if macs, err = GetMacAddresses(); err != nil {
 		log.Fatal("Unable to retrieve MAC addresses")
-	} else {
-		allMacs = macs
 	}
 
 	// Open the specified network interface for packet capture
@@ -63,37 +73,56 @@ func main() {
 		}
 	}
 
+	// Creates a new decoding layer parser and a buffer to store the decoded layers.
+	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &eth, &ipv4, &ipv6, &tcp, &udp)
+	decoded := []gopacket.LayerType{}
+
 	// Starts the Websocket server
 	go StartServer()
 
-	// Create a goroutine for mapping connections to their respective PID
-	go GetSocketConnections(5, verbose)
+	// Starts mapping processes in relation to their sockets.
+	go GetSocketConnections(5, &getConnectionsMutex)
 
-	// Create a goroutine for encoding the activeConnections map into JSON
-	go EncodeActiveConnections(&activeConnections, areConnectionsEncoded, verbose)
+	// Parse the active processes into JSON in intervals of 1 second.
+	go ParseActiveProcesses(&activeProcesses, areProcessesEncoded)
 
-	// Create a packet source to process packets
-	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	// Get packets and process them into useful data.
+	for {
 
-	// Loop through packets from the packet source
-	for packet := range packetSource.Packets() {
-		/* If EncodeActiveConnections has finished encoding the data contained on the map, reset the map,
-		so that the client receives the accumulated network traffic of the previous second
-		*/
+		// If the active processes were encoded, reset the map.
 		select {
-		case encoded := <-areConnectionsEncoded:
+		case encoded := <-areProcessesEncoded:
 			if encoded {
-				activeConnections = make(map[string]*ConnectionData)
+				activeProcessesMutex.Lock()
+				activeProcesses = make(map[string]*ActiveProcess)
+				activeProcessesMutex.Unlock()
 			}
 		default:
 		}
 
-		// Process the packet, and log error if the 'verbose' flag is set
-		if err := GetNetworkData(packet, allMacs, activeConnections); err != nil && *verbose {
-			log.Println(err.Error())
-		}
-	}
+		// Read packets from the handle without copying them.
+		if data, _, err := handle.ReadPacketData(); err != nil {
+			continue
+		} else {
+			// Store the data to use on the decoding layer parser.
+			packetData = data
 
-	// Print a newline at the end for cleaner termination
-	fmt.Println()
+			// Use the data to create a new packet. This packet is used only to extract payload information.
+			packet = gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+
+			if appLayer := packet.ApplicationLayer(); appLayer != nil {
+				payload = len(appLayer.Payload()) // Extract the payload information from the application layer
+			} else {
+				payload = len(packetData)
+			}
+		}
+
+		// Decode the layers and store them in the 'decoded' buffer.
+		if err := parser.DecodeLayers(packetData, &decoded); err != nil {
+			continue
+		}
+
+		// Process the packet.
+		ProcessPacket(decoded, macs, payload, &getConnectionsMutex)
+	}
 }
