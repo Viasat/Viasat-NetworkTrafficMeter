@@ -195,6 +195,7 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 		pid = connection.pid
 		creationTime = connection.creationTime
 	} else if connection, ok := connections2pid[invertedKey]; ok {
+		processName = connection.name
 		pid = connection.pid
 		creationTime = connection.creationTime
 	} else {
