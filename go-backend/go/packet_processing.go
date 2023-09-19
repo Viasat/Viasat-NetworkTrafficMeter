@@ -145,8 +145,6 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 				}
 			}
 
-			break
-
 		// Get host information from the Network Layer.
 		case layers.LayerTypeIPv4:
 			if isUpload {
@@ -155,16 +153,12 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 				srcHost = ipv4.DstIP.String()
 			}
 
-			break
-
 		case layers.LayerTypeIPv6:
 			if isUpload {
 				dstHost = ipv6.SrcIP.String()
 			} else {
 				srcHost = ipv6.DstIP.String()
 			}
-
-			break
 
 		// Creates keys using the local and remote ports to check a process' existence in the connections2pid map.
 		case layers.LayerTypeTCP:
@@ -177,8 +171,6 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 				srcProtocol = tcp.DstPort.String()
 			}
 
-			break
-
 		case layers.LayerTypeUDP:
 			key = SocketConnectionPorts{localAddressPort: uint32(udp.SrcPort), remoteAddressPort: uint32(udp.DstPort)}
 			invertedKey = SocketConnectionPorts{localAddressPort: uint32(udp.DstPort), remoteAddressPort: uint32(udp.SrcPort)}
@@ -188,8 +180,6 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 			} else {
 				srcProtocol = udp.DstPort.String()
 			}
-
-			break
 		}
 	}
 
@@ -205,7 +195,6 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 		pid = connection.pid
 		creationTime = connection.creationTime
 	} else if connection, ok := connections2pid[invertedKey]; ok {
-		processName = connection.name
 		pid = connection.pid
 		creationTime = connection.creationTime
 	} else {

@@ -81,7 +81,7 @@ func main() {
 	go StartServer()
 
 	// Starts mapping processes in relation to their sockets.
-	go GetSocketConnections(5, &getConnectionsMutex)
+	go GetSocketConnections(1, &getConnectionsMutex)
 
 	// Parse the active processes into JSON in intervals of 1 second.
 	go ParseActiveProcesses(&activeProcesses, areProcessesEncoded, &activeProcessesMutex)
@@ -100,7 +100,7 @@ func main() {
 		default:
 		}
 
-		// Read packets from the handle without copying them.
+		// Read packets from the handle.
 		if data, _, err := handle.ReadPacketData(); err != nil {
 			continue
 		} else {
@@ -112,8 +112,6 @@ func main() {
 
 			if appLayer := packet.ApplicationLayer(); appLayer != nil {
 				payload = len(appLayer.Payload()) // Extract the payload information from the application layer
-			} else {
-				payload = len(packetData)
 			}
 		}
 
