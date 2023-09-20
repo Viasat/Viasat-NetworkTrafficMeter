@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -11,8 +12,9 @@ import (
 )
 
 var (
-	connections2pid map[SocketConnectionPorts]SocketConnectionProcess = make(map[SocketConnectionPorts]SocketConnectionProcess)
-	activeProcesses map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
+	connections2pid     map[SocketConnectionPorts]SocketConnectionProcess = make(map[SocketConnectionPorts]SocketConnectionProcess)
+	activeProcesses     map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
+	activeProcessesChan chan map[string]*ActiveProcess                    = make(chan map[string]*ActiveProcess)
 
 	eth  layers.Ethernet
 	ipv4 layers.IPv4
@@ -20,6 +22,20 @@ var (
 	tcp  layers.TCP
 	udp  layers.UDP
 )
+
+// ManageActiveProcessesBuffer sends the current activeProcesses map to ParseActiveProcesses every one second, and then resets the map.
+func ManageActiveProcessesBuffer(activeProcessesChan chan map[string]*ActiveProcess, activeProcessesMutex *sync.RWMutex) {
+	var ticker = time.NewTicker(time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			activeProcessesChan <- activeProcesses
+			activeProcessesMutex.Lock()
+			activeProcesses = make(map[string]*ActiveProcess)
+			activeProcessesMutex.Unlock()
+		}
+	}
+}
 
 func main() {
 	var (
@@ -31,8 +47,6 @@ func main() {
 
 		getConnectionsMutex  = sync.RWMutex{} // getConnectionMutex is a mutex used to control read/write operations in the connections2pid map.
 		activeProcessesMutex = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
-
-		areProcessesEncoded chan bool = make(chan bool, 1)
 	)
 
 	// Define command-line flags for the network interface and filter
@@ -83,23 +97,13 @@ func main() {
 	// Starts mapping processes in relation to their sockets.
 	go GetSocketConnections(1, &getConnectionsMutex)
 
+	go ManageActiveProcessesBuffer(activeProcessesChan, &activeProcessesMutex)
+
 	// Parse the active processes into JSON in intervals of 1 second.
-	go ParseActiveProcesses(&activeProcesses, areProcessesEncoded, &activeProcessesMutex)
+	go ParseActiveProcesses(activeProcessesChan)
 
 	// Get packets and process them into useful data.
 	for {
-
-		// If the active processes were encoded, reset the map.
-		select {
-		case encoded := <-areProcessesEncoded:
-			if encoded {
-				activeProcessesMutex.Lock()
-				activeProcesses = make(map[string]*ActiveProcess)
-				activeProcessesMutex.Unlock()
-			}
-		default:
-		}
-
 		// Read packets from the handle.
 		if data, _, err := handle.ReadPacketData(); err != nil {
 			continue
@@ -120,7 +124,9 @@ func main() {
 			continue
 		}
 
-		// Process the packet.
+		// Lock the activeProcesses map and process the packet.
+		activeProcessesMutex.Lock()
 		ProcessPacket(decoded, macs, payload, &getConnectionsMutex)
+		activeProcessesMutex.Unlock()
 	}
 }

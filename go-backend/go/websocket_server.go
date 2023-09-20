@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"sync"
-	"time"
 
 	"nhooyr.io/websocket"
 )
@@ -15,29 +13,15 @@ var (
 )
 
 // ParseActiveProcesses parse the activeProcesses data to JSON and sends it to the Websocket server.
-/*
-When the map has been encoded, this function sends a signal through the 'areProcessesEncoded' channel to the main function
-to indicate that the activeProcesses map should be reset.
-*/
-func ParseActiveProcesses(activeProcesses *map[string]*ActiveProcess, areProcessesEncoded chan bool, activeProcessesMutex *sync.RWMutex) {
+func ParseActiveProcesses(activeProcessesChan <-chan map[string]*ActiveProcess) {
 	for {
-		activeProcessesMutex.Lock()
 		// Encode the activeProcesses map to JSON, and log any errors
-		if jsonStr, err := json.Marshal(*activeProcesses); err != nil {
+		if jsonStr, err := json.Marshal(<-activeProcessesChan); err != nil {
 			log.Println(err.Error())
 		} else {
 			// Blocking channel communication, so that this functions awaits for the websocket to send the previous data
 			jsonData <- jsonStr
-
-			// Non-blocking channel communication, so that it won't block the main function if packets aren't being received
-			select {
-			case areProcessesEncoded <- true:
-			default:
-			}
 		}
-		activeProcessesMutex.Unlock()
-
-		time.Sleep(1 * time.Second)
 	}
 }
 
