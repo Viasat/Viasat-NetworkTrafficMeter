@@ -12,9 +12,8 @@ import (
 )
 
 var (
-	connections2pid     map[SocketConnectionPorts]SocketConnectionProcess = make(map[SocketConnectionPorts]SocketConnectionProcess)
-	activeProcesses     map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
-	activeProcessesChan chan map[string]*ActiveProcess                    = make(chan map[string]*ActiveProcess)
+	connections2pid map[SocketConnectionPorts]SocketConnectionProcess = make(map[SocketConnectionPorts]SocketConnectionProcess)
+	activeProcesses map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
 
 	eth  layers.Ethernet
 	ipv4 layers.IPv4
@@ -41,58 +40,59 @@ func main() {
 	var (
 		packet     gopacket.Packet // packet stores the packet information to extract the payload.
 		packetData []byte          // packetData Stores the packet data to use on the layer decoder.
-		payload    int             // payload stores the packet payload in bytes.
 		macs       []string        // macs stores an array of this machine's MAC addresses.
-		err        error           // err stores any errors from function returns.
+		payload    int             // payload stores the packet payload in bytes.
+
+		err error // err stores any errors from function returns.
 
 		getConnectionsMutex  = sync.RWMutex{} // getConnectionMutex is a mutex used to control read/write operations in the connections2pid map.
 		activeProcessesMutex = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
+
+		activeProcessesChan chan map[string]*ActiveProcess = make(chan map[string]*ActiveProcess)
+		selectedIfaceChan   chan string                    = make(chan string, 1)
 	)
 
 	// Define command-line flags for the network interface and filter
 	interfaceName := flag.String("i", "", "Network interface to capture packets on")
-	filter := flag.String("f", "", "BPF filter for capturing specific packets")
+	legacyMode := flag.Bool("legacy", false, "Legacy mode, where the interface must be chosen from the backend.")
 
 	// Parse command-line arguments
 	flag.Parse()
-
-	// Check if the interface name was provided; if not, show instructions and list of available interfaces
-	if *interfaceName == "" {
-		PrintUsage()
-		if dev, err := GetInterfaceFromList(); err != nil {
-			log.Fatal(err)
-		} else {
-			*interfaceName = dev // If the interface choice is valid, get its name for initializing the handle
-		}
-	}
 
 	// Set MAC addresses
 	if macs, err = GetMacAddresses(); err != nil {
 		log.Fatal("Unable to retrieve MAC addresses")
 	}
 
+	// Starts the Websocket server
+	go StartServer(selectedIfaceChan, legacyMode)
+
+	log.Println("Waiting for interface")
+	if *legacyMode {
+		if *interfaceName == "" {
+			PrintUsage()
+			if dev, err := GetInterfaceFromList(); err != nil {
+				log.Fatal(err)
+			} else {
+				*interfaceName = dev // If the interface choice is valid, get its name for initializing the handle
+			}
+		}
+		selectedIfaceChan <- *interfaceName
+	}
+
 	// Open the specified network interface for packet capture
-	handle, err := pcap.OpenLive(*interfaceName, 1600, true, pcap.BlockForever)
+	handle, err := pcap.OpenLive(<-selectedIfaceChan, 1600, true, pcap.BlockForever)
 	if err != nil {
 		log.Fatal(err) // Log any error
 	}
+	log.Println("Interface received")
 
 	// Ensure the handle is closed when finished
 	defer handle.Close()
 
-	// Apply the BPF filter if provided
-	if *filter != "" {
-		if err := handle.SetBPFFilter(*filter); err != nil {
-			log.Fatal(err) // Log any error setting the filter
-		}
-	}
-
 	// Creates a new decoding layer parser and a buffer to store the decoded layers.
 	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &eth, &ipv4, &ipv6, &tcp, &udp)
 	decoded := []gopacket.LayerType{}
-
-	// Starts the Websocket server
-	go StartServer()
 
 	// Starts mapping processes in relation to their sockets.
 	go GetSocketConnections(1, &getConnectionsMutex)
