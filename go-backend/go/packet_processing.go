@@ -14,35 +14,35 @@ import (
 
 // ActiveProcess stores all relevant information of a process generating network traffic, including the subprocesses, protocols used and external hosts.
 type ActiveProcess struct {
-	Name      string
-	Upload    int
-	Download  int
-	Processes map[int32]*ProcessData
-	Protocols map[string]*ProtocolData
-	Hosts     map[string]*HostData
+	Name        string                   `json:"name"`
+	Update_Time int64                    `json:"update_time"`
+	Upload      int                      `json:"upload"`
+	Download    int                      `json:"download"`
+	Processes   map[int32]*ProcessData   `json:"processes"`
+	Protocols   map[string]*ProtocolData `json:"protocols"`
+	Hosts       map[string]*HostData     `json:"hosts"`
 }
 
 // ProcessData stores a Process' ID, its individual network consumption as well as time of creation and last update.
 type ProcessData struct {
-	Pid         int32
-	Create_Time int64
-	Update_Time int64
-	Upload      int
-	Download    int
+	Pid         int32 `json:"pid"`
+	Create_Time int64 `json:"create_time"`
+	Upload      int   `json:"upload"`
+	Download    int   `json:"download"`
 }
 
 // ProtocolData stores the port number along with its well-known protocol name (if it has one) and its individual network consumption.
 type ProtocolData struct {
-	Protocol_Name string
-	Upload        int
-	Download      int
+	Protocol_Name string `json:"protocol_name"`
+	Upload        int    `json:"upload"`
+	Download      int    `json:"download"`
 }
 
 // HostData stores the IP address of an external host communicating with the associated process, as well as its individual network consumption.
 type HostData struct {
-	Host_Name string
-	Upload    int
-	Download  int
+	Host_Name string `json:"host_name"`
+	Upload    int    `json:"upload"`
+	Download  int    `json:"download"`
 }
 
 // SocketConnectionPorts serves as a tuple for storing the local address port and remote address port.
@@ -250,10 +250,10 @@ func UpdateActiveProcess(activeProcess *ActiveProcess, creationTime int64, pid i
 	// Update all network statistics as well as the time this connection was updated
 	activeProcess.Download += download
 	activeProcess.Upload += upload
+	activeProcess.Update_Time = time.Now().UnixMilli()
 
 	activeProcess.Processes[pid].Download += download
 	activeProcess.Processes[pid].Upload += upload
-	activeProcess.Processes[pid].Update_Time = time.Now().UnixMilli()
 
 	activeProcess.Protocols[protocol].Download += download
 	activeProcess.Protocols[protocol].Upload += upload
