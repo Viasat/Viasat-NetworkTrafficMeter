@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"sync"
 	"time"
@@ -12,7 +13,8 @@ import (
 
 var (
 	connections2pid map[SocketConnectionPorts]SocketConnectionProcess = make(map[SocketConnectionPorts]SocketConnectionProcess)
-	activeProcesses map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
+	bufferParser    map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
+	bufferDatabase  map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
 
 	eth  layers.Ethernet
 	ipv4 layers.IPv4
@@ -21,16 +23,34 @@ var (
 	udp  layers.UDP
 )
 
-// ManageActiveProcessesBuffer sends the current activeProcesses map to ParseActiveProcesses every one second, and then resets the map.
-func ManageActiveProcessesBuffer(activeProcessesChan chan map[string]*ActiveProcess, activeProcessesMutex *sync.RWMutex) {
+// ManageParserBuffer sends the current activeProcesses map to ParseActiveProcesses every one second, and then resets the map.
+func ManageParserBuffer(bufferParserChan chan map[string]*ActiveProcess, bufferParserMutex *sync.RWMutex) {
 	var ticker = time.NewTicker(time.Second)
 	for {
 		select {
 		case <-ticker.C:
-			activeProcessesChan <- activeProcesses
-			activeProcessesMutex.Lock()
-			activeProcesses = make(map[string]*ActiveProcess)
-			activeProcessesMutex.Unlock()
+			bufferParserChan <- bufferParser
+			bufferParserMutex.Lock()
+			bufferParser = make(map[string]*ActiveProcess)
+			bufferParserMutex.Unlock()
+		}
+	}
+}
+
+func ManageDatabaseBuffer(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
+	var ticker = time.NewTicker(5 * time.Minute)
+	for {
+		select {
+		case <-ticker.C:
+			log.Println("Saving to database...")
+			bufferDatabaseMutex.Lock()
+			if err := InsertActiveProcessWithRelatedData(db, bufferDatabase); err != nil {
+				log.Println("Failed saving data to database: ", err)
+			} else {
+				log.Println("Saving complete")
+			}
+			bufferDatabase = make(map[string]*ActiveProcess)
+			bufferDatabaseMutex.Unlock()
 		}
 	}
 }
@@ -52,24 +72,31 @@ func main() {
 		packetData []byte          // packetData Stores the packet data to use on the layer decoder.
 		macs       []string        // macs stores an array of this machine's MAC addresses.
 		payload    int             // payload stores the packet payload in bytes.
+		db         *sql.DB         // db stores the database handle used in the webserver
 
 		err error // err stores any errors from function returns.
 
-		getConnectionsMutex  = sync.RWMutex{} // getConnectionMutex is a mutex used to control read/write operations in the connections2pid map.
-		activeProcessesMutex = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
+		getConnectionsMutex = sync.RWMutex{} // getConnectionMutex is a mutex used to control read/write operations in the connections2pid map.
+		bufferParserMutex   = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
+		bufferDatabaseMutex = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
 
-		activeProcessesChan  chan map[string]*ActiveProcess = make(chan map[string]*ActiveProcess)
+		bufferParserChan     chan map[string]*ActiveProcess = make(chan map[string]*ActiveProcess)
 		networkInterfaceChan chan string                    = make(chan string, 1)
 		updatedHandleChan    chan *pcap.Handle              = make(chan *pcap.Handle)
 	)
 
 	// Set MAC addresses
 	if macs, err = GetMacAddresses(); err != nil {
-		log.Fatal("Unable to retrieve MAC addresses")
+		log.Fatal("Unable to retrieve MAC addresses: ", err)
+	}
+
+	// Start the database
+	if db, err = OpenDatabase(); err != nil {
+		log.Fatal("Unable to open database: ", err)
 	}
 
 	// Starts the web server
-	go StartWebserver(networkInterfaceChan)
+	go StartWebserver(networkInterfaceChan, db)
 
 	// Waits for the client to inform a network interface, then open it for packet capture
 	log.Println("Waiting for interface")
@@ -91,10 +118,14 @@ func main() {
 	// Starts mapping processes in relation to their sockets.
 	go GetSocketConnections(1, &getConnectionsMutex)
 
-	go ManageActiveProcessesBuffer(activeProcessesChan, &activeProcessesMutex)
+	// Sends the active processes within 1 second to the client
+	go ManageParserBuffer(bufferParserChan, &bufferParserMutex)
+
+	// Send the active processes within 5 minutes to the database
+	go ManageDatabaseBuffer(db, &bufferDatabaseMutex)
 
 	// Parse the active processes into JSON in intervals of 1 second.
-	go ParseActiveProcesses(activeProcessesChan)
+	go ParseActiveProcesses(bufferParserChan)
 
 	// Get packets and process them into useful data.
 	for {
@@ -127,8 +158,10 @@ func main() {
 		}
 
 		// Lock the activeProcesses map and process the packet.
-		activeProcessesMutex.Lock()
-		ProcessPacket(decoded, macs, payload, &getConnectionsMutex)
-		activeProcessesMutex.Unlock()
+		bufferParserMutex.Lock()
+		bufferDatabaseMutex.Lock()
+		ProcessPacket(decoded, macs, payload, &getConnectionsMutex, bufferParser, bufferDatabase)
+		bufferParserMutex.Unlock()
+		bufferDatabaseMutex.Unlock()
 	}
 }

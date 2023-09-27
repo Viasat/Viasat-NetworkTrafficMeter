@@ -6,3 +6,6 @@
 
 # Builds
 *.exe
+
+# Database
+*.db

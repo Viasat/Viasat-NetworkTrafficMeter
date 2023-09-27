@@ -1,9 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"nhooyr.io/websocket"
@@ -129,7 +131,7 @@ func StartServerLegacy(ifaceName chan<- string, legacyMode *bool) {
 }
 
 // StartWebserver initializes the Gin webserver on port 50000. It updates the "networkInterfaceChan" channel with the network interface name provided from a POST request to /devices.
-func StartWebserver(networkInterfaceChan chan<- string) {
+func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 	var (
 		conn *websocket.Conn // conn represents a Websocket connection
 		err  error           // err handles any function errors
@@ -183,7 +185,61 @@ func StartWebserver(networkInterfaceChan chan<- string) {
 		}
 
 	})
+	router.GET("/active-processes", func(c *gin.Context) {
+		var initialDateInt, endDateInt int64
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
 
+		if initialDate != "" && endDate != "" {
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+			}
+
+			if data, err := GetActiveProcessesByTime(db, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			if data, err := GetActiveProcesses(db); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/active-processes/:name", func(c *gin.Context) {
+		var initialDateInt, endDateInt int64
+		name := c.Param("name")
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		if initialDate != "" && endDate != "" {
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+			}
+
+			if data, err := GetActiveProcessByNameAndTime(db, name, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			if data, err := GetActiveProcessByName(db, name); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
 	// Run the server
 	router.Run("localhost:50000")
 }

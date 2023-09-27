@@ -120,7 +120,7 @@ func GetSocketConnections(interval int16, getConnectionsMutex *sync.RWMutex) {
 
 // ProcessPacket relates packet information to its related process.
 // It stores the process information in an existing or new ActiveProcess and updates the ActiveProcesses map directly.
-func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload int, getConnectionsMutex *sync.RWMutex) {
+func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload int, getConnectionsMutex *sync.RWMutex, activeProcessesParser, activeProcessesDatabase map[string]*ActiveProcess) {
 	var (
 		key, invertedKey SocketConnectionPorts         // key and invertedKey stores the local and remote ports (or the inverse) as keys to the connections2pid map.
 		isUpload         bool                  = false // Initializes a flag to indicate whether the packet flow is an upload or download.
@@ -131,6 +131,7 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 		srcHost, dstHost         string
 		srcProtocol, dstProtocol string
 		activeProcess            *ActiveProcess
+		activeProcessDB          *ActiveProcess
 	)
 
 	// Iterate through the decoded layers, extracting relevant information.
@@ -203,19 +204,28 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 	}
 
 	// Create a new ActiveProcess object for this process if one does not exist in the activeProcesses map
-	if _, ok := activeProcesses[processName]; !ok {
+	if _, ok := activeProcessesParser[processName]; !ok {
 		activeProcess = CreateActiveProcess(processName)
-		activeProcesses[processName] = activeProcess
+		activeProcessesParser[processName] = activeProcess
+	}
+
+	// Create a new ActiveProcess object for this process if one does not exist in the activeProcesses map
+	if _, ok := activeProcessesDatabase[processName]; !ok {
+		activeProcessDB = CreateActiveProcess(processName)
+		activeProcessesDatabase[processName] = activeProcessDB
 	}
 
 	// Get the ActiveProcess information for this process
-	activeProcess = activeProcesses[processName]
+	activeProcess = activeProcessesParser[processName]
+	activeProcessDB = activeProcessesDatabase[processName]
 
 	// Update the ActiveProcess according to packet flow
 	if isUpload {
 		UpdateActiveProcess(activeProcess, creationTime, pid, dstHost, dstProtocol, 0, payload)
+		UpdateActiveProcess(activeProcessDB, creationTime, pid, dstHost, dstProtocol, 0, payload)
 	} else {
 		UpdateActiveProcess(activeProcess, creationTime, pid, srcHost, srcProtocol, payload, 0)
+		UpdateActiveProcess(activeProcessDB, creationTime, pid, srcHost, srcProtocol, payload, 0)
 	}
 }
 
