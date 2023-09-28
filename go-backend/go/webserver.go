@@ -292,7 +292,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/active-processes/statistics/:name", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
+	router.GET("/active-processes/statistics/:name", func(c *gin.Context) { // Get network throughput of a certain active process based (or not) on a timeframe
 		// Get the active process' name from path parameters
 		name := c.Param("name")
 
@@ -313,14 +313,14 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 				return
 			}
 
-			// Get all active processes by name and time
+			// Get active processes statistics by name and time
 			if data, err := GetActiveProcessesThroughputByNameAndTime(db, name, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
-			// Get all active processes by name
+			// Get active processes statistics by name
 			if data, err := GetActiveProcessesThroughputByName(db, name); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
@@ -328,7 +328,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/active-processes/statistics/entries", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
+	router.GET("/active-processes/statistics/entries", func(c *gin.Context) { // Get network throughput of active processes entries based (or not) on a timeframe
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -346,14 +346,14 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 				return
 			}
 
-			// Get all active processes by time
+			// Get active processes statistics by entry and time
 			if data, err := GetActiveProcessesThroughputByEntryAndTime(db, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
-			// Get all active processes
+			// Get active processes statistics by entry
 			if data, err := GetActiveProcessesThroughputByEntry(db); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
@@ -437,7 +437,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/processes/statistics/:pid", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
+	router.GET("/processes/statistics/:pid", func(c *gin.Context) { // Get network throughput of a certain process based (or not) on a timeframe
 		// Get the active process' name from path parameters
 		pid := c.Param("pid")
 
@@ -458,14 +458,14 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 				return
 			}
 
-			// Get all active processes by name and time
+			// Get processes statistics by PID and time
 			if data, err := GetProcessesThroughputByPidAndTime(db, pid, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
-			// Get all active processes by name
+			// Get processes statistics by PIDs
 			if data, err := GetProcessesThroughputByPid(db, pid); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
@@ -473,7 +473,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/processes/statistics/entries", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
+	router.GET("/processes/statistics/entries", func(c *gin.Context) { // Get network throughput of processes entries based (or not) on a timeframe
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -491,14 +491,14 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 				return
 			}
 
-			// Get all active processes by time
+			// Get processes statistics by entry and time
 			if data, err := GetProcessesThroughputByEntryAndTime(db, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
-			// Get all active processes
+			// Get processes statistics by entry
 			if data, err := GetProcessesThroughputByEntry(db); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
@@ -576,7 +576,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/protocols/statistics/:name", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
+	router.GET("/protocols/statistics/:name", func(c *gin.Context) { // Get network throughput of a certain protocol based (or not) on a timeframe
 		// Get the active process' name from path parameters
 		name := c.Param("name")
 
@@ -597,14 +597,14 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 				return
 			}
 
-			// Get all active processes by name and time
+			// Get protocols statistics by name and time
 			if data, err := GetProtocolsThroughputByNameAndTime(db, name, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
-			// Get all active processes by name
+			// Get protocols statistics by name
 			if data, err := GetProtocolsThroughputByName(db, name); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
@@ -612,7 +612,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/protocols/statistics/entries", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
+	router.GET("/protocols/statistics/entries", func(c *gin.Context) { // Get network throughput of protocols entries based (or not) on a timeframe
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -630,14 +630,14 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 				return
 			}
 
-			// Get all active processes by time
+			// Get protocols statistics by entry and time
 			if data, err := GetProtocolsThroughputByEntryAndTime(db, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
-			// Get all active processes
+			// Get protocols statistics by entry
 			if data, err := GetProtocolsThroughputByEntry(db); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
@@ -715,7 +715,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/hosts/statistics/:name", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
+	router.GET("/hosts/statistics/:name", func(c *gin.Context) { // Get network throughput of a certain host based (or not) on a timeframe
 		// Get the active process' name from path parameters
 		name := c.Param("name")
 
@@ -736,14 +736,14 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 				return
 			}
 
-			// Get all active processes by name and time
+			// Get hosts statistics by name and time
 			if data, err := GetHostsThroughputByNameAndTime(db, name, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
-			// Get all active processes by name
+			// Get hosts statistics by name
 			if data, err := GetHostsThroughputByName(db, name); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
@@ -751,7 +751,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/hosts/statistics/entries", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
+	router.GET("/hosts/statistics/entries", func(c *gin.Context) { // Get network throughput of host entries based (or not) on a timeframe
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -769,20 +769,55 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 				return
 			}
 
-			// Get all active processes by time
+			// Get hosts statistics by entry and time
 			if data, err := GetHostsThroughputByEntryAndTime(db, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
-			// Get all active processes
+			// Get hosts statistics by entry
 			if data, err := GetHostsThroughputByEntry(db); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		}
+	})
+
+	router.DELETE("/delete", func(c *gin.Context) { // Remove old entries from database, and free disk space
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Remove entries based on time
+			if err := RemoveEntries(db, initialDate, endDate); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, gin.H{"message": "Entries deleted sucessfully"})
+			}
+		} else {
+			// Remove entries
+			if err := RemoveEntries(db); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, gin.H{"message": "Entries deleted sucessfully"})
+			}
+		}
+
 	})
 
 	// Run the server

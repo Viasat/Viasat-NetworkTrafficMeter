@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"log"
 
 	_ "modernc.org/sqlite"
@@ -56,6 +57,7 @@ func createProcessDataTable(db *sql.DB) (err error) {
 		download INTEGER NOT NULL,
 		active_process_id INTEGER NOT NULL,
 		FOREIGN KEY (active_process_id) REFERENCES active_process (id)
+		ON DELETE CASCADE
 	);
 	`
 
@@ -73,6 +75,7 @@ func createProtocolDataTable(db *sql.DB) (err error) {
 		download INTEGER NOT NULL,
 		active_process_id INTEGER NOT NULL,
 		FOREIGN KEY (active_process_id) REFERENCES active_process (id)
+		ON DELETE CASCADE
 	);
 	`
 
@@ -90,6 +93,7 @@ func createHostDataTable(db *sql.DB) (err error) {
 		download INTEGER NOT NULL,
 		active_process_id INTEGER NOT NULL,
 		FOREIGN KEY (active_process_id) REFERENCES active_process (id)
+		ON DELETE CASCADE
 	);
 	`
 
@@ -851,4 +855,44 @@ func queryNamedStatistics(db *sql.DB, query string, args ...interface{}) (map[st
 	}
 
 	return stats, nil
+}
+
+// RemoveEntries removes all entries from all tables of the database. A timeframe can be used as argument to clear the data.
+func RemoveEntries(db *sql.DB, args ...interface{}) error {
+	var query string
+
+	if len(args) == 2 {
+		query = "DELETE FROM active_process WHERE update_time >= ? AND update_time <= ?"
+	} else if len(args) == 0 {
+		query = "DELETE FROM active_process"
+	} else {
+		return errors.New("Incorrect argument format")
+	}
+
+	// Start a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Run the query to select all hosts
+	_, err = tx.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+
+	if err = tx.Commit(); err != nil {
+		log.Println("Error on commit")
+		return err
+	}
+
+	// Run the VACUUM command to reclaim unused space
+	_, err = db.Exec("VACUUM;")
+	if err != nil {
+		log.Println("Error on vacuum")
+		return err
+	}
+
+	return nil
 }
