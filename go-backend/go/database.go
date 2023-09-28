@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"log"
 
 	_ "modernc.org/sqlite"
 )
@@ -544,4 +545,204 @@ func queryHosts(db *sql.DB, query string, args ...interface{}) (hostsData []Host
 	}
 
 	return hostsData, nil
+}
+
+func GetTotalThroughput(db *sql.DB) (interface{}, error) {
+	selectQuery := `
+	SELECT SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM active_process
+	`
+
+	return queryStatistics(db, selectQuery)
+}
+
+func GetTotalThroughputByTime(db *sql.DB, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM active_process
+	WHERE update_time >= ? AND update_time <= ?
+	`
+
+	return queryStatistics(db, selectQuery, initialDate, endDate)
+}
+
+func GetActiveProcessesThroughputByEntry(db *sql.DB) (interface{}, error) {
+	selectQuery := `
+	SELECT name,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM active_process
+	GROUP BY name
+	`
+
+	return queryNamedStatistics(db, selectQuery)
+}
+
+func GetActiveProcessesThroughputByName(db *sql.DB, name string) (interface{}, error) {
+	selectQuery := `
+	SELECT name,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM active_process
+	WHERE name = ?
+	`
+
+	return queryNamedStatistics(db, selectQuery, name)
+}
+
+func GetActiveProcessesThroughputByEntryAndTime(db *sql.DB, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT name,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM active_process
+	WHERE update_time >= ? AND update_time <= ?
+	GROUP BY name
+	`
+	return queryNamedStatistics(db, selectQuery, initialDate, endDate)
+}
+
+func GetActiveProcessesThroughputByNameAndTime(db *sql.DB, name string, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT name,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM active_process
+	WHERE name = ? AND update_time >= ? AND update_time <= ?
+	`
+	return queryNamedStatistics(db, selectQuery, name, initialDate, endDate)
+}
+
+func GetProcessesThroughputByEntry(db *sql.DB) (interface{}, error) {
+	selectQuery := `
+	SELECT pid,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM process_data
+	GROUP BY pid
+	`
+
+	return queryNamedStatistics(db, selectQuery)
+}
+
+func GetProcessesThroughputByPid(db *sql.DB, pid string) (interface{}, error) {
+	selectQuery := `
+	SELECT pid,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM process_data
+	WHERE pid = ?
+	`
+
+	return queryNamedStatistics(db, selectQuery, pid)
+}
+
+func GetProcessesThroughputByEntryAndTime(db *sql.DB, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT p.pid,
+	SUM(p.upload), 
+	SUM(p.download), 
+	SUM(p.upload+p.download) 
+	FROM process_data AS p
+	INNER JOIN active_process AS ap ON p.active_process_id = ap.id
+	WHERE ap.update_time >= ? AND ap.update_time <= ?
+	GROUP BY p.pid
+	`
+	return queryNamedStatistics(db, selectQuery, initialDate, endDate)
+}
+
+func GetProcessesThroughputByPidAndTime(db *sql.DB, pid string, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT p.pid,
+	SUM(p.upload), 
+	SUM(p.download), 
+	SUM(p.upload+p.download)  
+	FROM process_data AS p
+	INNER JOIN active_process AS ap ON p.active_process_id = ap.id
+	WHERE p.pid = ? AND ap.update_time >= ? AND ap.update_time <= ?
+	`
+	return queryNamedStatistics(db, selectQuery, pid, initialDate, endDate)
+}
+
+func queryStatistics(db *sql.DB, query string, args ...interface{}) (interface{}, error) {
+	type Statistics struct {
+		Total_upload   int64 `json:"total_upload"`
+		Total_download int64 `json:"total_download"`
+		Total          int64 `json:"total"`
+	}
+
+	// Run the query to select all hosts
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stats Statistics
+
+	// Iterate through all resulting rows
+	for rows.Next() {
+		if err = rows.Scan(
+			&stats.Total_upload,
+			&stats.Total_download,
+			&stats.Total); err != nil {
+			return stats, err
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	log.Println(stats)
+
+	return stats, nil
+}
+
+func queryNamedStatistics(db *sql.DB, query string, args ...interface{}) (map[string]interface{}, error) {
+	type Statistics struct {
+		Name           string `json:"name"`
+		Total_upload   int64  `json:"total_upload"`
+		Total_download int64  `json:"total_download"`
+		Total          int64  `json:"total"`
+	}
+
+	// Run the query to select all hosts
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stats map[string]interface{} = make(map[string]interface{})
+
+	// Iterate through all resulting rows
+	for rows.Next() {
+		var statsEntry Statistics
+		if err = rows.Scan(
+			&statsEntry.Name,
+			&statsEntry.Total_upload,
+			&statsEntry.Total_download,
+			&statsEntry.Total); err != nil {
+			return nil, err
+		}
+
+		stats[statsEntry.Name] = statsEntry
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return stats, nil
 }
