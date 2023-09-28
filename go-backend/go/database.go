@@ -6,6 +6,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// OpenDatabase opens the local database (or creates one if it doens't exist) and returns a database handle.
 func OpenDatabase() (db *sql.DB, err error) {
 	db, err = sql.Open("sqlite", "database.db")
 
@@ -96,6 +97,7 @@ func createHostDataTable(db *sql.DB) (err error) {
 	return err
 }
 
+// InsertActiveProcessWithRelatedData saves the current activeProcesses buffer to the database.
 func InsertActiveProcessWithRelatedData(db *sql.DB, activeProcesses map[string]*ActiveProcess) error {
 	// Check if there any entries to save
 	if len(activeProcesses) == 0 {
@@ -205,49 +207,13 @@ func GetActiveProcessByNameAndTime(db *sql.DB, name string, initialDate, endDate
 	return queryActiveProcesses(db, selectQuery, name, initialDate, endDate)
 }
 
-func GetProcesses(db *sql.DB) (processData []ProcessData, err error) {
-	selectQuery := `SELECT pd.pid, pd.create_time, pd.upload, pd.download FROM process_data AS pd`
-
-	return queryProcesses(db, selectQuery)
-}
-
-// FIXME:
-func GetProcessesByPid(db *sql.DB, pid int) (processData []ProcessData, err error) {
-	selectQuery := `
-	SELECT pd.pid, pd.create_time, pd.upload, pd.download FROM process_data AS pd WHERE pd.pid = ?
-	`
-
-	return queryProcesses(db, selectQuery, pid)
-}
-
-// FIXME:
-func GetProcessesByTime(db *sql.DB, initialDate, endDate int64) (processData []ProcessData, err error) {
-	selectQuery := `
-	SELECT pd.pid, pd.create_time, pd.upload, pd.download 
-	FROM process_data AS pd 
-	INNER JOIN active_processes AS ap ON pd.active_process_id = ap.id
-	WHERE ap.update_time >= ? AND ap.update_time <= ?
-	`
-
-	return queryProcesses(db, selectQuery, initialDate, endDate)
-}
-
-// FIXME:
-func GetProcessesByPidAndTime(db *sql.DB, pid int, initialDate, endDate int64) (processData []ProcessData, err error) {
-	selectQuery := `
-	SELECT pd.pid, pd.create_time, pd.upload, pd.download 
-	FROM process_data AS pd 
-	INNER JOIN active_processes AS ap ON pd.active_process_id = ap.id
-	WHERE pd.pid = ? AND ap.update_time >= ? AND ap.update_time <= ?
-	`
-
-	return queryProcesses(db, selectQuery, pid, initialDate, endDate)
-}
-
+// queryActiveProcesses is a helper function to execute queries related to ActiveProcesses.
+// Specifically for ActiveProcesses, additional "subqueries" are executed in sequence in order to retrieve
+// processes, hosts and protocols related to the activeProcess.
 func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (activeProcesses []ActiveProcess, err error) {
 	var (
-		id   int
-		rows *sql.Rows
+		id   int       // id stores the unique id of an active_process entry from the database
+		rows *sql.Rows // rows stores the fetched rows from the query
 	)
 
 	// Run the first query, to select all active processes
@@ -257,11 +223,12 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 	}
 	defer rows.Close()
 
+	// Iterate through all resulting rows
 	for rows.Next() {
-		var (
-			activeProcess ActiveProcess
-		)
+		// Create an ActiveProcess for each row
+		var activeProcess ActiveProcess
 
+		// Store the columns from the database in the ActiveProcess' attributes
 		if err = rows.Scan(
 			&id,
 			&activeProcess.Name,
@@ -271,19 +238,24 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 			return
 		}
 
+		// Initialize the processes/protocols/hosts maps
 		activeProcess.Processes = make(map[int32]*ProcessData)
 		activeProcess.Protocols = make(map[string]*ProtocolData)
 		activeProcess.Hosts = make(map[string]*HostData)
 
-		// Run a query to pick all processes from this active process
+		// Run another query to pick all processes related to this ActiveProcess
 		subQuery := "SELECT pr.pid, pr.create_time, pr.upload, pr.download FROM process_data AS pr WHERE pr.active_process_id = ?"
 		subRows, err := db.Query(subQuery, id)
 		if err != nil {
 			return activeProcesses, err
 		}
 
+		// Iterate through all resulting rows
 		for subRows.Next() {
+			// Create a new ProcessData for each row
 			var processData ProcessData
+
+			// Store the columns from the database in the ProcessData's attributes
 			if err = subRows.Scan(
 				&processData.Pid,
 				&processData.Create_Time,
@@ -291,44 +263,59 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 				&processData.Download); err != nil {
 				return activeProcesses, err
 			}
+
+			// Store the ProcessData in the ActiveProcess.Processes map
 			activeProcess.Processes[processData.Pid] = &processData
 		}
 
-		// Run a query to pick all protocols from this active process
+		// Run another query to pick all protocols from this active process
 		subQuery = "SELECT pr.protocol_name, pr.upload, pr.download FROM protocol_data AS pr WHERE pr.active_process_id = ?"
 		subRows, err = db.Query(subQuery, id)
 		if err != nil {
 			return nil, err
 		}
 
+		// Iterate through all resulting rows
 		for subRows.Next() {
+			// Create a new ProtocolData for each row
 			var protocolData ProtocolData
+
+			// Store the columns from the database in the ProtocolData's attributes
 			if err = subRows.Scan(
 				&protocolData.Protocol_Name,
 				&protocolData.Upload,
 				&protocolData.Download); err != nil {
 				return nil, err
 			}
+
+			// Store the ProtocolData in the ActiveProcess.Protocols map
 			activeProcess.Protocols[protocolData.Protocol_Name] = &protocolData
 		}
-		// Run a query to pick all hosts from this active proces
+		// Run a query to pick all hosts from this active process
 		subQuery = "SELECT h.host_name, h.upload, h.download FROM host_data AS h WHERE h.active_process_id = ?"
 		subRows, err = db.Query(subQuery, id)
 		if err != nil {
 			return nil, err
 		}
 
+		// Iterate through all resulting rows
 		for subRows.Next() {
+			// Create a new HostData for each row
 			var hostData HostData
+
+			// Store the columns from the database in the HostData's attributes
 			if err = subRows.Scan(
 				&hostData.Host_Name,
 				&hostData.Upload,
 				&hostData.Download); err != nil {
 				return nil, err
 			}
+
+			// Store the ProtocolData in the ActiveProcess.Hosts map
 			activeProcess.Hosts[hostData.Host_Name] = &hostData
 		}
 
+		// Append the ActiveProcess into the array
 		activeProcesses = append(activeProcesses, activeProcess)
 	}
 
@@ -339,19 +326,61 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 	return activeProcesses, nil
 }
 
+func GetProcesses(db *sql.DB) (processData []ProcessData, err error) {
+	selectQuery := `SELECT pd.pid, pd.create_time, pd.upload, pd.download FROM process_data AS pd`
+
+	return queryProcesses(db, selectQuery)
+}
+
+func GetProcessesByPid(db *sql.DB, pid int) (processData []ProcessData, err error) {
+	selectQuery := `
+	SELECT pd.pid, pd.create_time, pd.upload, pd.download FROM process_data AS pd WHERE pd.pid = ?
+	`
+
+	return queryProcesses(db, selectQuery, pid)
+}
+
+func GetProcessesByTime(db *sql.DB, initialDate, endDate int64) (processData []ProcessData, err error) {
+	selectQuery := `
+	SELECT pd.pid, pd.create_time, pd.upload, pd.download 
+	FROM process_data AS pd 
+	INNER JOIN active_process AS ap ON pd.active_process_id = ap.id
+	WHERE ap.update_time >= ? AND ap.update_time <= ?
+	`
+
+	return queryProcesses(db, selectQuery, initialDate, endDate)
+}
+
+func GetProcessesByPidAndTime(db *sql.DB, pid int, initialDate, endDate int64) (processData []ProcessData, err error) {
+	selectQuery := `
+	SELECT pd.pid, pd.create_time, pd.upload, pd.download 
+	FROM process_data AS pd 
+	INNER JOIN active_process AS ap ON pd.active_process_id = ap.id
+	WHERE pd.pid = ? AND ap.update_time >= ? AND ap.update_time <= ?
+	`
+
+	return queryProcesses(db, selectQuery, pid, initialDate, endDate)
+}
+
+// queryProcesses is a helper function to execute queries related to Processes.
 func queryProcesses(db *sql.DB, query string, args ...interface{}) (processesData []ProcessData, err error) {
 	var (
 		rows *sql.Rows
 	)
 
+	// Run the query to select all processes
 	rows, err = db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
+	// Iterate through all resulting rows
 	for rows.Next() {
+		// Create a new ProcessData for each row
 		var processData ProcessData
+
+		// Store the columns from the database in the ProcessData's attributes
 		if err = rows.Scan(
 			&processData.Pid,
 			&processData.Create_Time,
@@ -359,6 +388,8 @@ func queryProcesses(db *sql.DB, query string, args ...interface{}) (processesDat
 			&processData.Download); err != nil {
 			return
 		}
+
+		// Append the ProcessData into the array
 		processesData = append(processesData, processData)
 	}
 
@@ -367,4 +398,150 @@ func queryProcesses(db *sql.DB, query string, args ...interface{}) (processesDat
 	}
 
 	return processesData, nil
+}
+
+func GetProtocols(db *sql.DB) (protocolData []ProtocolData, err error) {
+	selectQuery := `SELECT prot.protocol_name, prot.upload, prot.download FROM protocol_data AS prot`
+
+	return queryProtocols(db, selectQuery)
+}
+
+func GetProtocolsByName(db *sql.DB, protocol string) (protocolData []ProtocolData, err error) {
+	selectQuery := `
+	SELECT prot.protocol_name, prot.upload, prot.download FROM protocol_data AS prot WHERE prot.protocol_name = ?
+	`
+
+	return queryProtocols(db, selectQuery, protocol)
+}
+
+func GetProtocolsByTime(db *sql.DB, initialDate, endDate int64) (protocolData []ProtocolData, err error) {
+	selectQuery := `
+	SELECT prot.protocol_name, prot.upload, prot.download
+	FROM protocol_data AS prot 
+	INNER JOIN active_process AS ap ON prot.active_process_id = ap.id
+	WHERE ap.update_time >= ? AND ap.update_time <= ?
+	`
+
+	return queryProtocols(db, selectQuery, initialDate, endDate)
+}
+
+func GetProtocolsByNameAndTime(db *sql.DB, protocol string, initialDate, endDate int64) (protocolData []ProtocolData, err error) {
+	selectQuery := `
+	SELECT prot.protocol_name, prot.upload, prot.download
+	FROM protocol_data AS prot 
+	INNER JOIN active_process AS ap ON prot.active_process_id = ap.id
+	WHERE prot.protocol_name = ? AND ap.update_time >= ? AND ap.update_time <= ?
+	`
+
+	return queryProtocols(db, selectQuery, protocol, initialDate, endDate)
+}
+
+// queryProtocols is a helper function to execute queries related to Protocols.
+func queryProtocols(db *sql.DB, query string, args ...interface{}) (protocolsData []ProtocolData, err error) {
+	var (
+		rows *sql.Rows
+	)
+
+	// Run the query to select all protocols
+	rows, err = db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Iterate through all resulting rows
+	for rows.Next() {
+		// Create a new ProtocolData for each row
+		var protocolData ProtocolData
+
+		// Store the columns from the database in the ProtocolData's attributes
+		if err = rows.Scan(
+			&protocolData.Protocol_Name,
+			&protocolData.Upload,
+			&protocolData.Download); err != nil {
+			return
+		}
+
+		// Append the ProtocolData into the array
+		protocolsData = append(protocolsData, protocolData)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return protocolsData, nil
+}
+
+func GetHosts(db *sql.DB) (hostsData []HostData, err error) {
+	selectQuery := `SELECT h.host_name, h.upload, h.download FROM host_data AS h`
+
+	return queryHosts(db, selectQuery)
+}
+
+func GetHostsByName(db *sql.DB, protocol string) (hostsData []HostData, err error) {
+	selectQuery := `
+	SELECT h.host_name, h.upload, h.download FROM host_data AS h WHERE h.host_name = ?
+	`
+
+	return queryHosts(db, selectQuery, protocol)
+}
+
+func GetHostsByTime(db *sql.DB, initialDate, endDate int64) (hostsData []HostData, err error) {
+	selectQuery := `
+	SELECT h.host_name, h.upload, h.download
+	FROM host_data AS h 
+	INNER JOIN active_process AS ap ON h.active_process_id = ap.id
+	WHERE ap.update_time >= ? AND ap.update_time <= ?
+	`
+
+	return queryHosts(db, selectQuery, initialDate, endDate)
+}
+
+func GetHostsByNameAndTime(db *sql.DB, protocol string, initialDate, endDate int64) (hostsData []HostData, err error) {
+	selectQuery := `
+	SELECT h.host_name, h.upload, h.download
+	FROM host_data AS h 
+	INNER JOIN active_process AS ap ON h.active_process_id = ap.id
+	WHERE h.host_name = ? AND ap.update_time >= ? AND ap.update_time <= ?
+	`
+
+	return queryHosts(db, selectQuery, protocol, initialDate, endDate)
+}
+
+// queryHosts is a helper function to execute queries related to Hosts.
+func queryHosts(db *sql.DB, query string, args ...interface{}) (hostsData []HostData, err error) {
+	var (
+		rows *sql.Rows
+	)
+
+	// Run the query to select all hosts
+	rows, err = db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Iterate through all resulting rows
+	for rows.Next() {
+		// Create a new HostData for each row
+		var hostData HostData
+
+		// Store the columns from the database in the HostData's attributes
+		if err = rows.Scan(
+			&hostData.Host_Name,
+			&hostData.Upload,
+			&hostData.Download); err != nil {
+			return
+		}
+
+		// Append the HostData into the array
+		hostsData = append(hostsData, hostData)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return hostsData, nil
 }

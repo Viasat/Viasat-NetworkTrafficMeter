@@ -130,11 +130,14 @@ func StartServerLegacy(ifaceName chan<- string, legacyMode *bool) {
 	http.ListenAndServe(":50000", nil)
 }
 
-// StartWebserver initializes the Gin webserver on port 50000. It updates the "networkInterfaceChan" channel with the network interface name provided from a POST request to /devices.
+// StartWebserver initializes the Gin webserver on port 50000.
+// It updates the "networkInterfaceChan" channel with the network interface name provided from a POST request to /devices.
 func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 	var (
 		conn *websocket.Conn // conn represents a Websocket connection
 		err  error           // err handles any function errors
+
+		initialDateInt, endDateInt int64 // Variables for storing the data value as int
 	)
 
 	// Initialize the Gin engine with default options.
@@ -185,26 +188,32 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 		}
 
 	})
-	router.GET("/active-processes", func(c *gin.Context) {
-		var initialDateInt, endDateInt int64
+	router.GET("/active-processes", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
+		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
 
+		// Check which query to run, depending if the dates were provided
 		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
 			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
 			}
 
 			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
 			}
 
+			// Get all active processes by time
 			if data, err := GetActiveProcessesByTime(db, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
+			// Get all active processes
 			if data, err := GetActiveProcesses(db); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 			} else {
@@ -212,27 +221,35 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-	router.GET("/active-processes/:name", func(c *gin.Context) {
-		var initialDateInt, endDateInt int64
+	router.GET("/active-processes/:name", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
+		// Get the active process' name from path parameters
 		name := c.Param("name")
+
+		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
 
+		// Check which query to run, depending if the dates were provided
 		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
 			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
 			}
 
 			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
 			}
 
+			// Get all active processes by name and time
 			if data, err := GetActiveProcessByNameAndTime(db, name, initialDateInt, endDateInt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
 		} else {
+			// Get all active processes by name
 			if data, err := GetActiveProcessByName(db, name); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 			} else {
@@ -240,6 +257,220 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
+	router.GET("/processes", func(c *gin.Context) { // Get all Processes on the database, or within a timeframe
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all processes by time
+			if data, err := GetProcessesByTime(db, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all processes
+			if data, err := GetProcesses(db); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/processes/:pid", func(c *gin.Context) { // Get all Processes by PID on the database, or within a timeframe
+		var pidInt int // Variable for storing the PID's value as int
+
+		// Get the PID value from path parameters
+		pid := c.Param("pid")
+
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		if pidInt, err = strconv.Atoi(pid); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for pid"})
+		}
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all processes by pid and time
+			if data, err := GetProcessesByPidAndTime(db, pidInt, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all processes by pid
+			if data, err := GetProcessesByPid(db, pidInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/protocols", func(c *gin.Context) { // Get all Protocols on the database, or within a timeframe
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all protocols by time
+			if data, err := GetProtocolsByTime(db, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all protocols
+			if data, err := GetProtocols(db); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/protocols/:protocol", func(c *gin.Context) { // Get all Protocols by name on the database, or within a timeframe
+		// Get the protocol name from the path parameters
+		protocol := c.Param("protocol")
+
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all protocols by name and time
+			if data, err := GetProtocolsByNameAndTime(db, protocol, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all protocols by name
+			if data, err := GetProtocolsByName(db, protocol); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/hosts", func(c *gin.Context) { // Get all Hosts on the database, or within a timeframe
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all hosts by time
+			if data, err := GetHostsByTime(db, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all hosts
+			if data, err := GetHosts(db); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/hosts/:host", func(c *gin.Context) { // Get all Hosts by name on the database, or within a timeframe
+		// Get the host name from path parameters
+		host := c.Param("host")
+
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all hosts by name and time
+			if data, err := GetHostsByNameAndTime(db, host, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all hosts by name
+			if data, err := GetHostsByName(db, host); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+
 	// Run the server
 	router.Run("localhost:50000")
 }
