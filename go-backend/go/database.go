@@ -674,6 +674,112 @@ func GetProcessesThroughputByPidAndTime(db *sql.DB, pid string, initialDate, end
 	return queryNamedStatistics(db, selectQuery, pid, initialDate, endDate)
 }
 
+func GetProtocolsThroughputByEntry(db *sql.DB) (interface{}, error) {
+	selectQuery := `
+	SELECT protocol_name,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM protocol_data
+	GROUP BY protocol_name
+	`
+
+	return queryNamedStatistics(db, selectQuery)
+}
+
+func GetProtocolsThroughputByName(db *sql.DB, name string) (interface{}, error) {
+	selectQuery := `
+	SELECT protocol_name,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM protocol_data
+	WHERE protocol_name = ?
+	`
+
+	return queryNamedStatistics(db, selectQuery, name)
+}
+
+func GetProtocolsThroughputByEntryAndTime(db *sql.DB, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT p.protocol_name,
+	SUM(p.upload), 
+	SUM(p.download), 
+	SUM(p.upload+p.download) 
+	FROM protocol_data AS p
+	INNER JOIN active_process AS ap ON p.active_process_id = ap.id
+	WHERE ap.update_time >= ? AND ap.update_time <= ?
+	GROUP BY p.protocol_name
+	`
+	return queryNamedStatistics(db, selectQuery, initialDate, endDate)
+}
+
+func GetProtocolsThroughputByNameAndTime(db *sql.DB, pid string, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT p.protocol_name,
+	SUM(p.upload), 
+	SUM(p.download), 
+	SUM(p.upload+p.download)  
+	FROM protocol_data AS p
+	INNER JOIN active_process AS ap ON p.active_process_id = ap.id
+	WHERE p.protocol_name = ? AND ap.update_time >= ? AND ap.update_time <= ?
+	`
+	return queryNamedStatistics(db, selectQuery, pid, initialDate, endDate)
+}
+
+func GetHostsThroughputByEntry(db *sql.DB) (interface{}, error) {
+	selectQuery := `
+	SELECT host_name,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM host_data
+	GROUP BY host_name
+	`
+
+	return queryNamedStatistics(db, selectQuery)
+}
+
+func GetHostsThroughputByName(db *sql.DB, name string) (interface{}, error) {
+	selectQuery := `
+	SELECT host_name,
+	SUM(upload), 
+	SUM(download), 
+	SUM(upload+download) 
+	FROM host_data
+	WHERE host_name = ?
+	`
+
+	return queryNamedStatistics(db, selectQuery, name)
+}
+
+func GetHostsThroughputByEntryAndTime(db *sql.DB, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT h.host_name,
+	SUM(h.upload), 
+	SUM(h.download), 
+	SUM(h.upload+h.download) 
+	FROM host_data AS h
+	INNER JOIN active_process AS ap ON h.active_process_id = ap.id
+	WHERE ap.update_time >= ? AND ap.update_time <= ?
+	GROUP BY h.host_name
+	`
+	return queryNamedStatistics(db, selectQuery, initialDate, endDate)
+}
+
+func GetHostsThroughputByNameAndTime(db *sql.DB, pid string, initialDate, endDate int64) (interface{}, error) {
+	selectQuery := `
+	SELECT h.host_name,
+	SUM(h.upload), 
+	SUM(h.download), 
+	SUM(h.upload+h.download)  
+	FROM host_data AS h
+	INNER JOIN active_process AS ap ON h.active_process_id = ap.id
+	WHERE h.host_name = ? AND ap.update_time >= ? AND ap.update_time <= ?
+	`
+	return queryNamedStatistics(db, selectQuery, pid, initialDate, endDate)
+}
+
 func queryStatistics(db *sql.DB, query string, args ...interface{}) (interface{}, error) {
 	type Statistics struct {
 		Total_upload   int64 `json:"total_upload"`

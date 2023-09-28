@@ -361,6 +361,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
+
 	router.GET("/processes", func(c *gin.Context) { // Get all Processes on the database, or within a timeframe
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
@@ -436,7 +437,6 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
-
 	router.GET("/processes/statistics/:pid", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
 		// Get the active process' name from path parameters
 		pid := c.Param("pid")
@@ -576,6 +576,76 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			}
 		}
 	})
+	router.GET("/protocols/statistics/:name", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
+		// Get the active process' name from path parameters
+		name := c.Param("name")
+
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all active processes by name and time
+			if data, err := GetProtocolsThroughputByNameAndTime(db, name, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all active processes by name
+			if data, err := GetProtocolsThroughputByName(db, name); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/protocols/statistics/entries", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all active processes by time
+			if data, err := GetProtocolsThroughputByEntryAndTime(db, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all active processes
+			if data, err := GetProtocolsThroughputByEntry(db); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+
 	router.GET("/hosts", func(c *gin.Context) { // Get all Hosts on the database, or within a timeframe
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
@@ -640,6 +710,75 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 			// Get all hosts by name
 			if data, err := GetHostsByName(db, host); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/hosts/statistics/:name", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
+		// Get the active process' name from path parameters
+		name := c.Param("name")
+
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all active processes by name and time
+			if data, err := GetHostsThroughputByNameAndTime(db, name, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all active processes by name
+			if data, err := GetHostsThroughputByName(db, name); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		}
+	})
+	router.GET("/hosts/statistics/entries", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
+		// Get the dates in Unix Epoch from query parameters
+		initialDate := c.DefaultQuery("initialDate", "")
+		endDate := c.DefaultQuery("endDate", "")
+
+		// Check which query to run, depending if the dates were provided
+		if initialDate != "" && endDate != "" {
+			// Convert the dates to int
+			if initialDateInt, err = strconv.ParseInt(initialDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for initialDate"})
+				return
+			}
+
+			if endDateInt, err = strconv.ParseInt(endDate, 10, 64); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Incorrect value for endDate"})
+				return
+			}
+
+			// Get all active processes by time
+			if data, err := GetHostsThroughputByEntryAndTime(db, initialDateInt, endDateInt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
+			} else {
+				c.JSON(http.StatusOK, data)
+			}
+		} else {
+			// Get all active processes
+			if data, err := GetHostsThroughputByEntry(db); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No data available"})
 			} else {
 				c.JSON(http.StatusOK, data)
 			}
