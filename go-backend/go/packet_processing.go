@@ -14,35 +14,35 @@ import (
 
 // ActiveProcess stores all relevant information of a process generating network traffic, including the subprocesses, protocols used and external hosts.
 type ActiveProcess struct {
-	Name        string                   `json:"name"`
-	Update_Time int64                    `json:"update_time"`
-	Upload      int                      `json:"upload"`
-	Download    int                      `json:"download"`
-	Processes   map[int32]*ProcessData   `json:"processes"`
-	Protocols   map[string]*ProtocolData `json:"protocols"`
-	Hosts       map[string]*HostData     `json:"hosts"`
+	Name        string                   
+	Update_Time int64                    
+	Upload      uint64                   
+	Download    uint64                   
+	Processes   map[int32]*ProcessData   
+	Protocols   map[string]*ProtocolData 
+	Hosts       map[string]*HostData     
 }
 
 // ProcessData stores a Process' ID, its individual network consumption as well as time of creation and last update.
 type ProcessData struct {
-	Pid         int32 `json:"pid"`
-	Create_Time int64 `json:"create_time"`
-	Upload      int   `json:"upload"`
-	Download    int   `json:"download"`
+	Pid         int32  
+	Create_Time int64  
+	Upload      uint64 
+	Download    uint64 
 }
 
 // ProtocolData stores the port number along with its well-known protocol name (if it has one) and its individual network consumption.
 type ProtocolData struct {
-	Protocol_Name string `json:"protocol_name"`
-	Upload        int    `json:"upload"`
-	Download      int    `json:"download"`
+	Protocol_Name string 
+	Upload        uint64 
+	Download      uint64 
 }
 
 // HostData stores the IP address of an external host communicating with the associated process, as well as its individual network consumption.
 type HostData struct {
-	Host_Name string `json:"host_name"`
-	Upload    int    `json:"upload"`
-	Download  int    `json:"download"`
+	Host_Name string 
+	Upload    uint64 
+	Download  uint64 
 }
 
 // SocketConnectionPorts serves as a tuple for storing the local address port and remote address port.
@@ -120,7 +120,7 @@ func GetSocketConnections(interval int16, getConnectionsMutex *sync.RWMutex) {
 
 // ProcessPacket relates packet information to its related process.
 // It stores the process information in an existing or new ActiveProcess and updates the ActiveProcesses map directly.
-func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload int, getConnectionsMutex *sync.RWMutex, activeProcessesParser, activeProcessesDatabase map[string]*ActiveProcess) {
+func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload uint64, getConnectionsMutex *sync.RWMutex, activeProcessesParser, activeProcessesDatabase map[string]*ActiveProcess) {
 	var (
 		key, invertedKey SocketConnectionPorts         // key and invertedKey stores the local and remote ports (or the inverse) as keys to the connections2pid map.
 		isUpload         bool                  = false // Initializes a flag to indicate whether the packet flow is an upload or download.
@@ -200,6 +200,7 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload in
 		pid = connection.pid
 		creationTime = connection.creationTime
 	} else {
+		log.Println("Packet discarded")
 		return
 	}
 
@@ -241,7 +242,7 @@ func CreateActiveProcess(name string) (activeProcess *ActiveProcess) {
 }
 
 // UpdateActiveProcess updates an activeProcess with information extracted from the packet. This function updates the connection directly by reference.
-func UpdateActiveProcess(activeProcess *ActiveProcess, creationTime int64, pid int32, host string, protocol string, download int, upload int) {
+func UpdateActiveProcess(activeProcess *ActiveProcess, creationTime int64, pid int32, host string, protocol string, download uint64, upload uint64) {
 	// Create a new entry in the Processes map if the PID is not found
 	if _, ok := activeProcess.Processes[pid]; !ok {
 		activeProcess.Processes[pid] = &ProcessData{Pid: pid, Create_Time: creationTime}

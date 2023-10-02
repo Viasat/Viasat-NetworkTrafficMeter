@@ -39,6 +39,7 @@ func ManageParserBuffer(bufferParserChan chan map[string]*ActiveProcess, bufferP
 
 func ManageDatabaseBuffer(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 	var ticker = time.NewTicker(5 * time.Minute)
+	defer InsertActiveProcessWithRelatedData(db, bufferDatabase)
 	for {
 		select {
 		case <-ticker.C:
@@ -71,7 +72,7 @@ func main() {
 		packet     gopacket.Packet // packet stores the packet information to extract the payload.
 		packetData []byte          // packetData Stores the packet data to use on the layer decoder.
 		macs       []string        // macs stores an array of this machine's MAC addresses.
-		payload    int             // payload stores the packet payload in bytes.
+		payload    uint64          // payload stores the packet payload in bytes.
 		db         *sql.DB         // db stores the database handle used in the webserver
 
 		err error // err stores any errors from function returns.
@@ -145,10 +146,10 @@ func main() {
 			packetData = data
 
 			// Use the data to create a new packet. This packet is used only to extract payload information.
-			packet = gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+			packet = gopacket.NewPacket(data, handle.LinkType(), gopacket.Default)
 
-			if appLayer := packet.ApplicationLayer(); appLayer != nil {
-				payload = len(appLayer.Payload()) // Extract the payload information from the application layer
+			if payloadLayer := packet.Layer(gopacket.LayerTypePayload); payloadLayer != nil {
+				payload = uint64(len(payloadLayer.LayerContents())) // Extract the payload information from the application layer
 			}
 		}
 
