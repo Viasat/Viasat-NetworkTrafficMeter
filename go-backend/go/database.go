@@ -4,13 +4,13 @@ import (
 	"database/sql"
 	"errors"
 	"log"
-
+	"os"
 	_ "modernc.org/sqlite"
 )
 
 // OpenDatabase opens the local database (or creates one if it doens't exist) and returns a database handle.
 func OpenDatabase() (db *sql.DB, err error) {
-	db, err = sql.Open("sqlite", "database.db")
+	db, err = sql.Open("sqlite", os.Getenv("APPDATA")+ "/networktrafficmeter/database.db")
 
 	if err = createActiveProcessTable(db); err != nil {
 		return nil, err
