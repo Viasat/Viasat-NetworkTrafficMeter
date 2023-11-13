@@ -58,8 +58,8 @@ func ManageDatabaseBuffer(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 
 // ManageHandle receives a network interface's name from the 'networkInterface' channel and returns a handle on the 'updatedHandle' channel if no errors occur.
 func ManageHandle(networkInterface chan string, updatedHandle chan *pcap.Handle) {
-	for iface := range networkInterface {
-		if handle, err := pcap.OpenLive(iface, 1600, true, pcap.BlockForever); err != nil {
+		for iface := range networkInterface {
+				if handle, err := pcap.OpenLive(iface, 1600, true, pcap.BlockForever); err != nil {
 			log.Println(err)
 		} else {
 			updatedHandle <- handle
@@ -99,7 +99,7 @@ func main() {
 	// Starts the web server
 	go StartWebserver(networkInterfaceChan, db)
 
-	// Waits for the client to inform a network interface, then open it for packet capture
+		// Waits for the client to inform a network interface, then open it for packet capture
 	log.Println("Waiting for interface")
 	handle, err := pcap.OpenLive(<-networkInterfaceChan, 1600, true, pcap.BlockForever)
 	if err != nil {
@@ -107,7 +107,7 @@ func main() {
 	}
 
 	// Ensure the handle is closed when finished
-	defer handle.Close()
+		defer handle.Close()
 
 	// Manage handle switching by the client at runtime
 	go ManageHandle(networkInterfaceChan, updatedHandleChan)
@@ -132,9 +132,9 @@ func main() {
 	for {
 		// Check if a new handle is available
 		select {
-		case newHandle := <-updatedHandleChan:
+		case <-updatedHandleChan:
 			handle.Close()
-			handle = newHandle
+			handle = <-updatedHandleChan
 		default:
 		}
 
