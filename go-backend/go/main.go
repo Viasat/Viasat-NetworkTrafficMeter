@@ -67,6 +67,16 @@ func ManageHandle(networkInterface chan string, updatedHandle chan *pcap.Handle)
 	}
 }
 
+// CreateHandle receives a network interface's name and returns a handle if no errors occur.
+func CreateHandle(networkInterface string) (*pcap.Handle, error) {
+	if handle, err := pcap.OpenLive(networkInterface, 1600, true, pcap.BlockForever); err != nil {
+		log.Println(err)
+		return nil, err
+	} else {
+		return handle, nil
+	}
+}
+
 func main() {
 	var (
 		packet     gopacket.Packet // packet stores the packet information to extract the payload.
@@ -74,6 +84,7 @@ func main() {
 		macs       []string        // macs stores an array of this machine's MAC addresses.
 		payload    uint64          // payload stores the packet payload in bytes.
 		db         *sql.DB         // db stores the database handle used in the webserver
+		pcapHandles []*pcap.Handle // array of pcap handles for each interface
 
 		err error // err stores any errors from function returns.
 
@@ -82,8 +93,6 @@ func main() {
 		bufferDatabaseMutex = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
 
 		bufferParserChan     chan map[string]*ActiveProcess = make(chan map[string]*ActiveProcess)
-		networkInterfaceChan chan string                    = make(chan string, 1)
-		updatedHandleChan    chan *pcap.Handle              = make(chan *pcap.Handle)
 	)
 
 	// Set MAC addresses
@@ -97,20 +106,20 @@ func main() {
 	}
 
 	// Starts the web server
-	go StartWebserver(networkInterfaceChan, db)
+	go StartWebserver(db)
 
-		// Waits for the client to inform a network interface, then open it for packet capture
-	log.Println("Waiting for interface")
-	handle, err := pcap.OpenLive(<-networkInterfaceChan, 1600, true, pcap.BlockForever)
-	if err != nil {
-		log.Fatal(err) // Log any error
+	// Gets interfaces
+	if ifaces, err := GetInterfaceList(); err != nil {
+		log.Fatal("Unable to retrieve interfaces")
+	} else {
+		for _, iface := range ifaces {
+			if handle, err := CreateHandle(iface.Name); err != nil {
+				log.Println("Unable do handle interface: ", iface.Description)
+			} else {
+				pcapHandles = append(pcapHandles, handle)
+			}
+		}
 	}
-
-	// Ensure the handle is closed when finished
-		defer handle.Close()
-
-	// Manage handle switching by the client at runtime
-	go ManageHandle(networkInterfaceChan, updatedHandleChan)
 
 	// Creates a new decoding layer parser and a buffer to store the decoded layers.
 	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &eth, &ipv4, &ipv6, &tcp, &udp)
@@ -129,40 +138,36 @@ func main() {
 	go ParseActiveProcesses(bufferParserChan)
 
 	// Get packets and process them into useful data.
-	for {
-		// Check if a new handle is available
-		select {
-		case <-updatedHandleChan:
-			handle.Close()
-			handle = <-updatedHandleChan
-		default:
-		}
+	for _, handle := range pcapHandles {
+		go func(handle *pcap.Handle) {
+			for {
+				// Read packets from the handle.
+				if data, _, err := handle.ReadPacketData(); err != nil {
+					continue
+				} else {
+					// Store the data to use on the decoding layer parser.
+					packetData = data
 
-		// Read packets from the handle.
-		if data, _, err := handle.ReadPacketData(); err != nil {
-			continue
-		} else {
-			// Store the data to use on the decoding layer parser.
-			packetData = data
-
-			// Use the data to create a new packet. This packet is used only to extract payload information.
-			packet = gopacket.NewPacket(data, handle.LinkType(), gopacket.Default)
-
-			if payloadLayer := packet.Layer(gopacket.LayerTypePayload); payloadLayer != nil {
-				payload = uint64(len(payloadLayer.LayerContents())) // Extract the payload information from the application layer
+					// Use the data to create a new packet. This packet is used only to extract payload information.
+					packet = gopacket.NewPacket(data, handle.LinkType(), gopacket.Default)
+					if payloadLayer := packet.Layer(gopacket.LayerTypePayload); payloadLayer != nil {
+						payload = uint64(len(payloadLayer.LayerContents())) // Extract the payload information from the application layer
+					}
+				}
+				// Decode the layers and store them in the 'decoded' buffer.
+				if err := parser.DecodeLayers(packetData, &decoded); err != nil {
+					continue
+				}
+				// Lock the activeProcesses map and process the packet.
+				bufferParserMutex.Lock()
+				bufferDatabaseMutex.Lock()
+				ProcessPacket(decoded, macs, payload, &getConnectionsMutex, bufferParser, bufferDatabase)
+				bufferParserMutex.Unlock()
+				bufferDatabaseMutex.Unlock()
 			}
-		}
-
-		// Decode the layers and store them in the 'decoded' buffer.
-		if err := parser.DecodeLayers(packetData, &decoded); err != nil {
-			continue
-		}
-
-		// Lock the activeProcesses map and process the packet.
-		bufferParserMutex.Lock()
-		bufferDatabaseMutex.Lock()
-		ProcessPacket(decoded, macs, payload, &getConnectionsMutex, bufferParser, bufferDatabase)
-		bufferParserMutex.Unlock()
-		bufferDatabaseMutex.Unlock()
+		}(handle)
+	}
+	for {
+		time.Sleep(time.Second * time.Duration(5))
 	}
 }

@@ -132,7 +132,7 @@ func StartServerLegacy(ifaceName chan<- string, legacyMode *bool) {
 
 // StartWebserver initializes the Gin webserver on port 50000.
 // It updates the "networkInterfaceChan" channel with the network interface name provided from a POST request to /devices.
-func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
+func StartWebserver(db *sql.DB) {
 	var (
 		conn *websocket.Conn // conn represents a Websocket connection
 		err  error           // err handles any function errors
@@ -146,27 +146,7 @@ func StartWebserver(networkInterfaceChan chan<- string, db *sql.DB) {
 
 	// Set the router's endpoints
 	router.GET("/devices", GetDevices)             // Returns a list of all network interfaces
-	router.POST("/devices", func(c *gin.Context) { // Set the desired network interface
 
-		// Get network device's name from the request's body
-		networkInterface := c.PostForm("interface")
-
-		// Check if the interface exists. If it does, send its name to the channel and return OK. If not, return error
-		if ifaces, err := GetInterfaceList(); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Unable to retrieve interfaces"})
-		} else {
-			for _, iface := range ifaces {
-				if iface.Name == networkInterface {
-					networkInterfaceChan <- networkInterface
-					c.JSON(http.StatusOK, gin.H{"message": "Device set"})
-
-					return
-				}
-			}
-		}
-
-		c.JSON(http.StatusNotFound, gin.H{"error": "Unable to locate device"})
-	})
 	router.GET("/ws", func(c *gin.Context) { // Websocket for supplying the client with current connections
 		// Upgrades the HTTP connection to a WS connection
 		if conn, err = websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{InsecureSkipVerify: true}); err != nil {
