@@ -43,23 +43,27 @@ func ManageDatabaseBuffer(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 	for {
 		select {
 		case <-ticker.C:
-			log.Println("Saving to database...")
-			bufferDatabaseMutex.Lock()
-			if err := InsertActiveProcessWithRelatedData(db, bufferDatabase); err != nil {
-				log.Println("Failed saving data to database: ", err)
-			} else {
-				log.Println("Saving complete")
-			}
-			bufferDatabase = make(map[string]*ActiveProcess)
-			bufferDatabaseMutex.Unlock()
+			SaveBufferToDatabase(db, bufferDatabaseMutex)
 		}
 	}
 }
 
+func SaveBufferToDatabase(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
+	log.Println("Saving to database...")
+	bufferDatabaseMutex.Lock()
+	if err := InsertActiveProcessWithRelatedData(db, bufferDatabase); err != nil {
+		log.Println("Failed saving data to database: ", err)
+	} else {
+		log.Println("Saving complete")
+	}
+	bufferDatabase = make(map[string]*ActiveProcess)
+	bufferDatabaseMutex.Unlock()
+}
+
 // ManageHandle receives a network interface's name from the 'networkInterface' channel and returns a handle on the 'updatedHandle' channel if no errors occur.
 func ManageHandle(networkInterface chan string, updatedHandle chan *pcap.Handle) {
-		for iface := range networkInterface {
-				if handle, err := pcap.OpenLive(iface, 1600, true, pcap.BlockForever); err != nil {
+	for iface := range networkInterface {
+		if handle, err := pcap.OpenLive(iface, 1600, true, pcap.BlockForever); err != nil {
 			log.Println(err)
 		} else {
 			updatedHandle <- handle
@@ -79,12 +83,12 @@ func CreateHandle(networkInterface string) (*pcap.Handle, error) {
 
 func main() {
 	var (
-		packet     gopacket.Packet // packet stores the packet information to extract the payload.
-		packetData []byte          // packetData Stores the packet data to use on the layer decoder.
-		macs       []string        // macs stores an array of this machine's MAC addresses.
-		payload    uint64          // payload stores the packet payload in bytes.
-		db         *sql.DB         // db stores the database handle used in the webserver
-		pcapHandles []*pcap.Handle // array of pcap handles for each interface
+		packet      gopacket.Packet // packet stores the packet information to extract the payload.
+		packetData  []byte          // packetData Stores the packet data to use on the layer decoder.
+		macs        []string        // macs stores an array of this machine's MAC addresses.
+		payload     uint64          // payload stores the packet payload in bytes.
+		db          *sql.DB         // db stores the database handle used in the webserver
+		pcapHandles []*pcap.Handle  // array of pcap handles for each interface
 
 		err error // err stores any errors from function returns.
 
@@ -92,7 +96,7 @@ func main() {
 		bufferParserMutex   = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
 		bufferDatabaseMutex = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
 
-		bufferParserChan     chan map[string]*ActiveProcess = make(chan map[string]*ActiveProcess)
+		bufferParserChan chan map[string]*ActiveProcess = make(chan map[string]*ActiveProcess)
 	)
 
 	// Set MAC addresses
@@ -106,7 +110,7 @@ func main() {
 	}
 
 	// Starts the web server
-	go StartWebserver(db)
+	go StartWebserver(db, &bufferDatabaseMutex)
 
 	// Gets interfaces
 	if ifaces, err := GetInterfaceList(); err != nil {
@@ -167,6 +171,7 @@ func main() {
 			}
 		}(handle)
 	}
+
 	for {
 		time.Sleep(time.Second * time.Duration(5))
 	}

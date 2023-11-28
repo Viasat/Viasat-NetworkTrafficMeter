@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"nhooyr.io/websocket"
@@ -132,7 +133,7 @@ func StartServerLegacy(ifaceName chan<- string, legacyMode *bool) {
 
 // StartWebserver initializes the Gin webserver on port 50000.
 // It updates the "networkInterfaceChan" channel with the network interface name provided from a POST request to /devices.
-func StartWebserver(db *sql.DB) {
+func StartWebserver(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 	var (
 		conn *websocket.Conn // conn represents a Websocket connection
 		err  error           // err handles any function errors
@@ -170,6 +171,7 @@ func StartWebserver(db *sql.DB) {
 	})
 
 	router.GET("/statistics", func(c *gin.Context) { // Get total network throughput from the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -204,6 +206,7 @@ func StartWebserver(db *sql.DB) {
 	})
 
 	router.GET("/active-processes", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -237,6 +240,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/active-processes/:name", func(c *gin.Context) { // Get all ActiveProcesses by name on the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the active process' name from path parameters
 		name := c.Param("name")
 
@@ -273,6 +277,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/active-processes/statistics/:name", func(c *gin.Context) { // Get network throughput of a certain active process based (or not) on a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the active process' name from path parameters
 		name := c.Param("name")
 
@@ -309,6 +314,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/active-processes/statistics/entries", func(c *gin.Context) { // Get network throughput of active processes entries based (or not) on a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -343,6 +349,7 @@ func StartWebserver(db *sql.DB) {
 	})
 
 	router.GET("/processes", func(c *gin.Context) { // Get all Processes on the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -376,6 +383,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/processes/:pid", func(c *gin.Context) { // Get all Processes by PID on the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		var pidInt int // Variable for storing the PID's value as int
 
 		// Get the PID value from path parameters
@@ -418,6 +426,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/processes/statistics/:pid", func(c *gin.Context) { // Get network throughput of a certain process based (or not) on a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the active process' name from path parameters
 		pid := c.Param("pid")
 
@@ -454,6 +463,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/processes/statistics/entries", func(c *gin.Context) { // Get network throughput of processes entries based (or not) on a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -488,6 +498,8 @@ func StartWebserver(db *sql.DB) {
 	})
 
 	router.GET("/protocols", func(c *gin.Context) { // Get all Protocols on the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -521,6 +533,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/protocols/:protocol", func(c *gin.Context) { // Get all Protocols by name on the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the protocol name from the path parameters
 		protocol := c.Param("protocol")
 
@@ -557,6 +570,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/protocols/statistics/:name", func(c *gin.Context) { // Get network throughput of a certain protocol based (or not) on a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the active process' name from path parameters
 		name := c.Param("name")
 
@@ -593,6 +607,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/protocols/statistics/entries", func(c *gin.Context) { // Get network throughput of protocols entries based (or not) on a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -627,6 +642,7 @@ func StartWebserver(db *sql.DB) {
 	})
 
 	router.GET("/hosts", func(c *gin.Context) { // Get all Hosts on the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
@@ -660,6 +676,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/hosts/:host", func(c *gin.Context) { // Get all Hosts by name on the database, or within a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the host name from path parameters
 		host := c.Param("host")
 
@@ -696,6 +713,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/hosts/statistics/:name", func(c *gin.Context) { // Get network throughput of a certain host based (or not) on a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the active process' name from path parameters
 		name := c.Param("name")
 
@@ -732,6 +750,7 @@ func StartWebserver(db *sql.DB) {
 		}
 	})
 	router.GET("/hosts/statistics/entries", func(c *gin.Context) { // Get network throughput of host entries based (or not) on a timeframe
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")
