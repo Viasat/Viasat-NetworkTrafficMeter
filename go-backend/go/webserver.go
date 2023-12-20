@@ -133,7 +133,7 @@ func StartServerLegacy(ifaceName chan<- string, legacyMode *bool) {
 
 // StartWebserver initializes the Gin webserver on port 50000.
 // It updates the "networkInterfaceChan" channel with the network interface name provided from a POST request to /devices.
-func StartWebserver(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
+func StartWebserver(db *sql.DB, bufferDatabaseMutex *sync.RWMutex, shutdownChan chan bool) {
 	var (
 		conn *websocket.Conn // conn represents a Websocket connection
 		err  error           // err handles any function errors
@@ -817,6 +817,15 @@ func StartWebserver(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 			}
 		}
 
+	})
+
+	router.GET("/ping", func(c *gin.Context) { // Shutdown the server
+		c.JSON(http.StatusOK, gin.H{"message": "Application is running"})
+	})
+
+	router.POST("/shutdown", func(c *gin.Context) { // Shutdown the server
+		c.JSON(http.StatusOK, gin.H{"message": "Shuting down backend application"})
+		shutdownChan <- true
 	})
 
 	// Run the server

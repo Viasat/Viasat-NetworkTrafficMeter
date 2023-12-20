@@ -133,6 +133,8 @@ func main() {
 		bufferDatabaseMutex = sync.RWMutex{} // bufferMutex is a mutex used to control read/write operations in the activeProcesses map.
 
 		bufferParserChan chan map[string]*ActiveProcess = make(chan map[string]*ActiveProcess)
+		
+		shutdownChan chan bool = make(chan bool) // channel used for shuting down the application
 	)
 
 	// Set MAC addresses
@@ -146,7 +148,7 @@ func main() {
 	}
 
 	// Starts the web server
-	go StartWebserver(db, &bufferDatabaseMutex)
+	go StartWebserver(db, &bufferDatabaseMutex, shutdownChan)
 
 	// Creates a new decoding layer parser and a buffer to store the decoded layers.
 	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &eth, &ipv4, &ipv6, &tcp, &udp)
@@ -165,71 +167,82 @@ func main() {
 	go ParseActiveProcesses(bufferParserChan)
 
 	for {
-		// Gets interfaces
-		if ifaces, err := GetInterfaceList(); err != nil {
-			log.Fatal("Unable to retrieve interfaces")
-		} else {
-			addedInterfaces, removedInterfaces := CheckInterfaces(currentInterfaces, ifaces)
-			currentInterfaces = ifaces
-			if len(removedInterfaces) > 0 {
-				//Removes interfaces not found
-				for _, iface := range removedInterfaces {
-					log.Println("Removed interface: ", iface.Description)
-					close(stopSignal[iface.Name])
-				}
+		select {
+		case <-shutdownChan:
+			SaveBufferToDatabase(db, &bufferDatabaseMutex)
+			for _, iface := range currentInterfaces {
+				log.Println("Closing interface: ", iface.Description)
+				close(stopSignal[iface.Name])
 			}
-			if len(addedInterfaces) > 0 {
-				// Loop through the new interfaces
-				for _, iface := range addedInterfaces {
+			return
+		default:
+			// Gets interfaces
+			if ifaces, err := GetInterfaceList(); err != nil {
+				log.Fatal("Unable to retrieve interfaces")
+			} else {
+				addedInterfaces, removedInterfaces := CheckInterfaces(currentInterfaces, ifaces)
+				currentInterfaces = ifaces
+				if len(removedInterfaces) > 0 {
+					//Removes interfaces not found
+					for _, iface := range removedInterfaces {
+						log.Println("Removed interface: ", iface.Description)
+						close(stopSignal[iface.Name])
+					}
+				}
+				if len(addedInterfaces) > 0 {
+					// Loop through the new interfaces
+					for _, iface := range addedInterfaces {
 
-					// Create a handle for the interface.
-					if handle, err := CreateHandle(iface.Name); err != nil {
-						log.Println("Unable do handle interface: ", iface.Description)
-						continue
-					} else {
-						log.Println("Added interface: ", iface.Description)
+						// Create a handle for the interface.
+						if handle, err := CreateHandle(iface.Name); err != nil {
+							log.Println("Unable do handle interface: ", iface.Description)
+							continue
+						} else {
+							log.Println("Added interface: ", iface.Description)
 
-						// Create the stop signal channel for this interface
-						stopSignal[iface.Name] = make(chan bool)
+							// Create the stop signal channel for this interface
+							stopSignal[iface.Name] = make(chan bool)
 
-						// Create the go routine for this interface
-						go func(handle *pcap.Handle, iface NetworkInterface, stopSignal chan bool) {
-							for {
-								select {
-								case <-stopSignal:
-									handle.Close()
-									return
-								default:
-									// Read packets from the handle.
-									if data, _, err := handle.ReadPacketData(); err != nil {
-										continue
-									} else {
-										// Store the data to use on the decoding layer parser.
-										packetData = data
+							// Create the go routine for this interface
+							go func(handle *pcap.Handle, iface NetworkInterface, stopSignal chan bool) {
+								for {
+									select {
+									case <-stopSignal:
+										handle.Close()
+										return
+									default:
+										// Read packets from the handle.
+										if data, _, err := handle.ReadPacketData(); err != nil {
+											continue
+										} else {
+											// Store the data to use on the decoding layer parser.
+											packetData = data
 
-										// Use the data to create a new packet. This packet is used only to extract payload information.
-										packet = gopacket.NewPacket(data, handle.LinkType(), gopacket.Default)
-										if payloadLayer := packet.Layer(gopacket.LayerTypePayload); payloadLayer != nil {
-											payload = uint64(len(payloadLayer.LayerContents())) // Extract the payload information from the application layer
+											// Use the data to create a new packet. This packet is used only to extract payload information.
+											packet = gopacket.NewPacket(data, handle.LinkType(), gopacket.Default)
+											if payloadLayer := packet.Layer(gopacket.LayerTypePayload); payloadLayer != nil {
+												payload = uint64(len(payloadLayer.LayerContents())) // Extract the payload information from the application layer
+											}
 										}
+										// Decode the layers and store them in the 'decoded' buffer.
+										if err := parser.DecodeLayers(packetData, &decoded); err != nil {
+											continue
+										}
+										// Lock the activeProcesses map and process the packet.
+										bufferParserMutex.Lock()
+										bufferDatabaseMutex.Lock()
+										ProcessPacket(decoded, macs, payload, &getConnectionsMutex, bufferParser, bufferDatabase)
+										bufferParserMutex.Unlock()
+										bufferDatabaseMutex.Unlock()
 									}
-									// Decode the layers and store them in the 'decoded' buffer.
-									if err := parser.DecodeLayers(packetData, &decoded); err != nil {
-										continue
-									}
-									// Lock the activeProcesses map and process the packet.
-									bufferParserMutex.Lock()
-									bufferDatabaseMutex.Lock()
-									ProcessPacket(decoded, macs, payload, &getConnectionsMutex, bufferParser, bufferDatabase)
-									bufferParserMutex.Unlock()
-									bufferDatabaseMutex.Unlock()
 								}
-							}
-						}(handle, iface, stopSignal[iface.Name])
+							}(handle, iface, stopSignal[iface.Name])
+						}
 					}
 				}
 			}
 		}
+
 		time.Sleep(time.Second)
 	}
 }
