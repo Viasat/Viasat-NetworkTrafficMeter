@@ -14,7 +14,7 @@ import (
 var (
 	connections2pid map[SocketConnectionPorts]SocketConnectionProcess = make(map[SocketConnectionPorts]SocketConnectionProcess)
 	bufferParser    map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
-	bufferDatabase  map[string]*ActiveProcess                         = make(map[string]*ActiveProcess)
+	bufferDatabase  []map[string]*ActiveProcess                         = make([]map[string]*ActiveProcess, 0)
 
 	eth  layers.Ethernet
 	ipv4 layers.IPv4
@@ -24,14 +24,17 @@ var (
 )
 
 // ManageParserBuffer sends the current activeProcesses map to ParseActiveProcesses every one second, and then resets the map.
-func ManageParserBuffer(bufferParserChan chan map[string]*ActiveProcess, bufferParserMutex *sync.RWMutex) {
+func ManageParserBuffer(bufferParserChan chan map[string]*ActiveProcess, bufferParserMutex, bufferDatabaseMutex *sync.RWMutex) {
 	var ticker = time.NewTicker(time.Second)
 	for {
 		select {
 		case <-ticker.C:
 			bufferParserChan <- bufferParser
 			bufferParserMutex.Lock()
+			bufferDatabaseMutex.Lock()
 			bufferParser = make(map[string]*ActiveProcess)
+			bufferDatabase = append(bufferDatabase, make(map[string]*ActiveProcess))
+			bufferDatabaseMutex.Unlock()
 			bufferParserMutex.Unlock()
 		}
 	}
@@ -56,7 +59,9 @@ func SaveBufferToDatabase(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 	} else {
 		log.Println("Saving complete")
 	}
-	bufferDatabase = make(map[string]*ActiveProcess)
+	bufferDatabase = make([]map[string]*ActiveProcess, 0)
+	bufferDatabase = append(bufferDatabase, make(map[string]*ActiveProcess))
+
 	bufferDatabaseMutex.Unlock()
 }
 
@@ -137,6 +142,8 @@ func main() {
 		shutdownChan chan bool = make(chan bool) // channel used for shuting down the application
 	)
 
+	bufferDatabase = append(bufferDatabase, make(map[string]*ActiveProcess))
+
 	// Set MAC addresses
 	if macs, err = GetMacAddresses(); err != nil {
 		log.Fatal("Unable to retrieve MAC addresses: ", err)
@@ -158,7 +165,7 @@ func main() {
 	go GetSocketConnections(1, &getConnectionsMutex)
 
 	// Sends the active processes within 1 second to the client
-	go ManageParserBuffer(bufferParserChan, &bufferParserMutex)
+	go ManageParserBuffer(bufferParserChan, &bufferParserMutex, &bufferDatabaseMutex)
 
 	// Send the active processes within 5 minutes to the database
 	go ManageDatabaseBuffer(db, &bufferDatabaseMutex)
@@ -231,7 +238,8 @@ func main() {
 										// Lock the activeProcesses map and process the packet.
 										bufferParserMutex.Lock()
 										bufferDatabaseMutex.Lock()
-										ProcessPacket(decoded, macs, payload, &getConnectionsMutex, bufferParser, bufferDatabase)
+										lastBufferDatabase := bufferDatabase[len(bufferDatabase)-1]
+										ProcessPacket(decoded, macs, payload, &getConnectionsMutex, bufferParser, lastBufferDatabase)
 										bufferParserMutex.Unlock()
 										bufferDatabaseMutex.Unlock()
 									}
