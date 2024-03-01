@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 
+	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
 )
 
@@ -73,4 +75,34 @@ func GetInterfaceFromList() (device string, err error) {
 			}
 		}
 	}
+}
+
+func GetIPs(networklayer gopacket.NetworkLayer)(string, string, error){
+	var (
+		srcIP  string
+		destIP string
+	)
+	srcIP = networklayer.NetworkFlow().Src().String()
+	destIP = networklayer.NetworkFlow().Dst().String()
+
+	return srcIP, destIP, nil
+}
+
+func GetPorts(transportLayer gopacket.TransportLayer)(uint64, uint64, error){
+	var (
+		srcPort  uint64
+		destPort uint64
+		err      error
+	)
+	srcPortStr := transportLayer.TransportFlow().Src().String()
+	destPortStr := transportLayer.TransportFlow().Dst().String()
+
+	if srcPort, err = strconv.ParseUint(srcPortStr, 10, 32); err != nil {
+		return 0, 0, err
+	}
+	if destPort, err = strconv.ParseUint(destPortStr, 10, 32); err != nil {
+		return 0, 0, err
+	}
+
+	return srcPort, destPort, nil
 }
