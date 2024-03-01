@@ -103,9 +103,9 @@ func createHostDataTable(db *sql.DB) (err error) {
 }
 
 // InsertActiveProcessWithRelatedData saves the current activeProcesses buffer to the database.
-func InsertActiveProcessWithRelatedData(db *sql.DB, activeProcesses map[string]*ActiveProcess) error {
+func InsertActiveProcessWithRelatedData(db *sql.DB, activeProcessesList []map[string]*ActiveProcess) error {
 	// Check if there any entries to save
-	if len(activeProcesses) == 0 {
+	if len(activeProcessesList) == 0 {
 		return nil
 	}
 
@@ -116,60 +116,65 @@ func InsertActiveProcessWithRelatedData(db *sql.DB, activeProcesses map[string]*
 	}
 	defer tx.Rollback()
 
-	for _, activeProcess := range activeProcesses {
-		// Insert the ActiveProcess
-		insertActiveProcessSQL := `
-		INSERT INTO active_process (name, update_time, upload, download)
-		VALUES (?, ?, ?, ?);
-		`
-
-		result, err := tx.Exec(insertActiveProcessSQL, activeProcess.Name, activeProcess.Update_Time, activeProcess.Upload, activeProcess.Download)
-		if err != nil {
-			return err
+	for _, activeProcesses := range activeProcessesList {
+		if len(activeProcesses) == 0 {
+			continue;
 		}
-
-		// Get the ID of the inserted ActiveProcess
-		activeProcessID, err := result.LastInsertId()
-		if err != nil {
-			return err
-		}
-
-		// Insert related ProcessData records
-		for _, processData := range activeProcess.Processes {
-			insertProcessDataSQL := `
-		INSERT INTO process_data (pid, create_time, upload, download, active_process_id)
-		VALUES (?, ?, ?, ?, ?);
-		`
-
-			_, err := tx.Exec(insertProcessDataSQL, processData.Pid, processData.Create_Time, processData.Upload, processData.Download, activeProcessID)
+		for _, activeProcess := range activeProcesses {
+			// Insert the ActiveProcess
+			insertActiveProcessSQL := `
+			INSERT INTO active_process (name, update_time, upload, download)
+			VALUES (?, ?, ?, ?);
+			`
+	
+			result, err := tx.Exec(insertActiveProcessSQL, activeProcess.Name, activeProcess.Update_Time, activeProcess.Upload, activeProcess.Download)
 			if err != nil {
 				return err
 			}
-		}
-
-		// Insert related ProtocolData records
-		for _, protocolData := range activeProcess.Protocols {
-			insertProtocolDataSQL := `
-		INSERT INTO protocol_data (protocol_name, upload, download, active_process_id)
-		VALUES (?, ?, ?, ?);
-		`
-
-			_, err := tx.Exec(insertProtocolDataSQL, protocolData.Protocol_Name, protocolData.Upload, protocolData.Download, activeProcessID)
+	
+			// Get the ID of the inserted ActiveProcess
+			activeProcessID, err := result.LastInsertId()
 			if err != nil {
 				return err
 			}
-		}
-
-		// Insert related HostData records
-		for _, hostData := range activeProcess.Hosts {
-			insertHostDataSQL := `
-		INSERT INTO host_data (host_name, upload, download, active_process_id)
-		VALUES (?, ?, ?, ?);
-		`
-
-			_, err := tx.Exec(insertHostDataSQL, hostData.Host_Name, hostData.Upload, hostData.Download, activeProcessID)
-			if err != nil {
-				return err
+	
+			// Insert related ProcessData records
+			for _, processData := range activeProcess.Processes {
+				insertProcessDataSQL := `
+			INSERT INTO process_data (pid, create_time, upload, download, active_process_id)
+			VALUES (?, ?, ?, ?, ?);
+			`
+	
+				_, err := tx.Exec(insertProcessDataSQL, processData.Pid, processData.Create_Time, processData.Upload, processData.Download, activeProcessID)
+				if err != nil {
+					return err
+				}
+			}
+	
+			// Insert related ProtocolData records
+			for _, protocolData := range activeProcess.Protocols {
+				insertProtocolDataSQL := `
+			INSERT INTO protocol_data (protocol_name, upload, download, active_process_id)
+			VALUES (?, ?, ?, ?);
+			`
+	
+				_, err := tx.Exec(insertProtocolDataSQL, protocolData.Protocol_Name, protocolData.Upload, protocolData.Download, activeProcessID)
+				if err != nil {
+					return err
+				}
+			}
+	
+			// Insert related HostData records
+			for _, hostData := range activeProcess.Hosts {
+				insertHostDataSQL := `
+			INSERT INTO host_data (host_name, upload, download, active_process_id)
+			VALUES (?, ?, ?, ?);
+			`
+	
+				_, err := tx.Exec(insertHostDataSQL, hostData.Host_Name, hostData.Upload, hostData.Download, activeProcessID)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

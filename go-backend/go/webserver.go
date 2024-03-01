@@ -209,7 +209,7 @@ func StartWebserver(db *sql.DB, bufferDatabaseMutex *sync.RWMutex, shutdownChan 
 	})
 
 	router.GET("/active-processes", func(c *gin.Context) { // Get all ActiveProcesses on the database, or within a timeframe
-		//SaveBufferToDatabase(db, bufferDatabaseMutex)
+		SaveBufferToDatabase(db, bufferDatabaseMutex)
 		// Get the dates in Unix Epoch from query parameters
 		initialDate := c.DefaultQuery("initialDate", "")
 		endDate := c.DefaultQuery("endDate", "")

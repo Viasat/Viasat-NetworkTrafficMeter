@@ -214,7 +214,7 @@ func ProcessPacket(packet gopacket.Packet, macs []string, getConnectionsMutex *s
 		pid = connection.pid
 		creationTime = connection.creationTime
 	} else {
-		log.Println("Packet discarded")
+		//log.Println("Packet discarded")
 		return
 	}
 
