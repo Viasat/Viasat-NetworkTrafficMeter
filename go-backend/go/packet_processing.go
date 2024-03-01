@@ -2,11 +2,11 @@ package main
 
 import (
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	ps_host "github.com/shirou/gopsutil/v3/host"
 	ps_net "github.com/shirou/gopsutil/v3/net"
 	ps_process "github.com/shirou/gopsutil/v3/process"
@@ -120,68 +120,82 @@ func GetSocketConnections(interval int16, getConnectionsMutex *sync.RWMutex) {
 
 // ProcessPacket relates packet information to its related process.
 // It stores the process information in an existing or new ActiveProcess and updates the ActiveProcesses map directly.
-func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload uint64, getConnectionsMutex *sync.RWMutex, activeProcessesParser, activeProcessesDatabase map[string]*ActiveProcess) {
+func ProcessPacket(packet gopacket.Packet, macs []string, getConnectionsMutex *sync.RWMutex, activeProcessesParser, activeProcessesDatabase map[string]*ActiveProcess) {
 	var (
 		key, invertedKey SocketConnectionPorts         // key and invertedKey stores the local and remote ports (or the inverse) as keys to the connections2pid map.
 		isUpload         bool                  = false // Initializes a flag to indicate whether the packet flow is an upload or download.
 
-		pid                      int32
-		creationTime             int64
-		processName              string
-		srcHost, dstHost         string
-		srcProtocol, dstProtocol string
-		activeProcess            *ActiveProcess
-		activeProcessDB          *ActiveProcess
+		payload          uint64
+		pid              int32
+		creationTime     int64
+		srcIP, dstIP     string
+		srcPort, dstPort uint64
+		processName      string
+		hostIP           string
+		hostPort         string
+		activeProcess    *ActiveProcess
+		activeProcessDB  *ActiveProcess
+
+		networkLayer     gopacket.NetworkLayer
+		transportLayer   gopacket.TransportLayer
+		linkLayer        gopacket.LinkLayer
+		applicationLayer gopacket.ApplicationLayer
 	)
 
-	// Iterate through the decoded layers, extracting relevant information.
-	for _, layerType := range decodedLayers {
-		switch layerType {
-		// Determine whether the packet flow is an upload or download by comparing MAC addresses.
-		case layers.LayerTypeEthernet:
-			for _, localMac := range macs {
-				if localMac == eth.DstMAC.String() {
-					isUpload = true
-					break
-				}
-			}
+	// Extract the layers from the packet
+	if applicationLayer = packet.ApplicationLayer(); applicationLayer == nil {
+		//log.Println("Application Layer not found")
+		return
+	}
+	if networkLayer = packet.NetworkLayer(); networkLayer == nil {
+		//log.Println("Network Layer not found")
+		return
+	}
+	if transportLayer = packet.TransportLayer(); transportLayer == nil {
+		//log.Println("Transport Layer not found")
+		return
+	}
+	if linkLayer = packet.LinkLayer(); linkLayer == nil {
+		//log.Println("Link Layer not found")
+		return
+	}
 
-		// Get host information from the Network Layer.
-		case layers.LayerTypeIPv4:
-			if isUpload {
-				dstHost = ipv4.SrcIP.String()
-			} else {
-				srcHost = ipv4.DstIP.String()
-			}
+	// Get the payload size
+	payload = uint64(len(applicationLayer.Payload()))
 
-		case layers.LayerTypeIPv6:
-			if isUpload {
-				dstHost = ipv6.SrcIP.String()
-			} else {
-				srcHost = ipv6.DstIP.String()
-			}
+	// Get src mac address from linklayer
+	srcMacAddress := linkLayer.LinkFlow().Src().String()
 
-		// Creates keys using the local and remote ports to check a process' existence in the connections2pid map.
-		case layers.LayerTypeTCP:
-			key = SocketConnectionPorts{localAddressPort: uint32(tcp.SrcPort), remoteAddressPort: uint32(tcp.DstPort)}
-			invertedKey = SocketConnectionPorts{localAddressPort: uint32(tcp.DstPort), remoteAddressPort: uint32(tcp.SrcPort)}
-
-			if isUpload {
-				dstProtocol = tcp.SrcPort.String()
-			} else {
-				srcProtocol = tcp.DstPort.String()
-			}
-
-		case layers.LayerTypeUDP:
-			key = SocketConnectionPorts{localAddressPort: uint32(udp.SrcPort), remoteAddressPort: uint32(udp.DstPort)}
-			invertedKey = SocketConnectionPorts{localAddressPort: uint32(udp.DstPort), remoteAddressPort: uint32(udp.SrcPort)}
-
-			if isUpload {
-				dstProtocol = udp.SrcPort.String()
-			} else {
-				srcProtocol = udp.DstPort.String()
-			}
+	// Check if the packet is an upload or download
+	for _, localMac := range macs {
+		if localMac == srcMacAddress {
+			isUpload = true
+			break
 		}
+	}
+
+	// Get the source and destination IP addresses
+	var err error
+	if srcIP, dstIP, err = GetIPs(networkLayer); err != nil {
+		log.Println("Error getting IPs")
+		return
+	}
+
+	// Get the source and destination ports
+	if srcPort, dstPort, err = GetPorts(transportLayer); err != nil {
+		log.Println("Error getting ports")
+		return
+	}
+
+	key = SocketConnectionPorts{localAddressPort: uint32(srcPort), remoteAddressPort: uint32(dstPort)}
+	invertedKey = SocketConnectionPorts{localAddressPort: uint32(dstPort), remoteAddressPort: uint32(srcPort)}
+
+	if isUpload {
+		hostIP = dstIP
+		hostPort = strconv.FormatUint(dstPort, 10)
+	} else {
+		hostIP = srcIP
+		hostPort = strconv.FormatUint(srcPort, 10)
 	}
 
 	// Lock the connections2pid map.
@@ -200,7 +214,7 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload ui
 		pid = connection.pid
 		creationTime = connection.creationTime
 	} else {
-		log.Println("Packet discarded")
+		//log.Println("Packet discarded")
 		return
 	}
 
@@ -222,11 +236,11 @@ func ProcessPacket(decodedLayers []gopacket.LayerType, macs []string, payload ui
 
 	// Update the ActiveProcess according to packet flow
 	if isUpload {
-		UpdateActiveProcess(activeProcess, creationTime, pid, dstHost, dstProtocol, 0, payload)
-		UpdateActiveProcess(activeProcessDB, creationTime, pid, dstHost, dstProtocol, 0, payload)
+		UpdateActiveProcess(activeProcess, creationTime, pid, hostIP, hostPort, 0, payload)
+		UpdateActiveProcess(activeProcessDB, creationTime, pid, hostIP, hostPort, 0, payload)
 	} else {
-		UpdateActiveProcess(activeProcess, creationTime, pid, srcHost, srcProtocol, payload, 0)
-		UpdateActiveProcess(activeProcessDB, creationTime, pid, srcHost, srcProtocol, payload, 0)
+		UpdateActiveProcess(activeProcess, creationTime, pid, hostIP, hostPort, payload, 0)
+		UpdateActiveProcess(activeProcessDB, creationTime, pid, hostIP, hostPort, payload, 0)
 	}
 }
 

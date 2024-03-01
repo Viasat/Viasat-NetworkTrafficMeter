@@ -32,8 +32,11 @@ func ParseActiveProcesses(activeProcessesChan <-chan map[string]*ActiveProcess) 
 		if jsonStr, err := json.Marshal(<-activeProcessesChan); err != nil {
 			log.Println(err.Error())
 		} else {
-			// Blocking channel communication, so that this functions awaits for the websocket to send the previous data
-			jsonData <- jsonStr
+			// Send the data when jsonData channel is available / when web socket is ready to receive
+			select {
+			case jsonData <- jsonStr:
+			default:
+			}
 		}
 	}
 }
