@@ -45,6 +45,29 @@ func ManageDatabaseBuffer(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 	}
 }
 
+func ManageRollupDatabase(db *sql.DB) {
+	var (
+		currentTime        = time.Now()
+		fiveMinutesAgo     = currentTime.Add(-5 * time.Minute)
+		rawXHoursAgo       = currentTime.Add(-24 * time.Hour)
+		oneHourAgo         = rawXHoursAgo.Add(-time.Duration(rawXHoursAgo.Minute()%2) * time.Minute).Truncate(time.Minute * 2)
+		twoMinutesInterval = time.Minute * 2
+	)
+	RollupDatabases(db, oneHourAgo, fiveMinutesAgo, twoMinutesInterval)
+	var ticker = time.NewTicker(time.Hour)
+	for {
+		select {
+		case <-ticker.C:
+			currentTime = time.Now()
+			fiveMinutesAgo = currentTime.Add(-5 * time.Minute)
+			rawXHoursAgo = currentTime.Add(-1 * time.Hour)
+			oneHourAgo = rawXHoursAgo.Add(-time.Duration(rawXHoursAgo.Minute()%2) * time.Minute).Truncate(time.Minute * 2)
+			twoMinutesInterval = time.Minute * 2
+			RollupDatabases(db, oneHourAgo, fiveMinutesAgo, twoMinutesInterval)
+		}
+	}
+}
+
 func SaveBufferToDatabase(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 	log.Println("Saving to database...")
 	bufferDatabaseMutex.Lock()
@@ -156,6 +179,9 @@ func main() {
 
 	// Send the active processes within 5 minutes to the database
 	go ManageDatabaseBuffer(db, &bufferDatabaseMutex)
+
+	// Rollup the databases every hour
+	go ManageRollupDatabase(db)
 
 	// Parse the active processes into JSON in intervals of 1 second.
 	go ParseActiveProcesses(bufferParserChan)
