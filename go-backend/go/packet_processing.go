@@ -26,7 +26,6 @@ type ActiveProcess struct {
 // ProcessData stores a Process' ID, its individual network consumption as well as time of creation and last update.
 type ProcessData struct {
 	Pid         int32  
-	Create_Time int64  
 	Upload      uint64 
 	Download    uint64 
 }
@@ -259,7 +258,7 @@ func CreateActiveProcess(name string) (activeProcess *ActiveProcess) {
 func UpdateActiveProcess(activeProcess *ActiveProcess, creationTime int64, pid int32, host string, protocol string, download uint64, upload uint64) {
 	// Create a new entry in the Processes map if the PID is not found
 	if _, ok := activeProcess.Processes[pid]; !ok {
-		activeProcess.Processes[pid] = &ProcessData{Pid: pid, Create_Time: creationTime}
+		activeProcess.Processes[pid] = &ProcessData{Pid: pid}
 	}
 
 	// Create a new entry in the Protocols map if the protocol is not found
