@@ -47,23 +47,48 @@ func ManageDatabaseBuffer(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 
 func ManageRollupDatabase(db *sql.DB) {
 	var (
-		currentTime        = time.Now()
-		fiveMinutesAgo     = currentTime.Add(-5 * time.Minute)
-		rawXHoursAgo       = currentTime.Add(-24 * time.Hour)
-		oneHourAgo         = rawXHoursAgo.Add(-time.Duration(rawXHoursAgo.Minute()%2) * time.Minute).Truncate(time.Minute * 2)
-		twoMinutesInterval = time.Minute * 2
+		currentTime    = time.Now()
+		fiveMinutesAgo = currentTime.Add(-5 * time.Minute)
+		hourInterval   = time.Minute * (60 / 30)
+		dayInterval    = hourInterval * 24
+		oneWeekAgo     = currentTime.Add(-7 * 24 * time.Hour).Truncate(hourInterval)
+		oneMonthAgo    = currentTime.Add(-30 * 24 * time.Hour).Truncate(dayInterval)
 	)
-	RollupDatabases(db, oneHourAgo, fiveMinutesAgo, twoMinutesInterval)
-	var ticker = time.NewTicker(time.Hour)
+
+	//Rollup the last week of data to be shown in hourly intervals
+	RollupDatabases(db, oneWeekAgo, fiveMinutesAgo, hourInterval)
+	
+	//Rollup the last month of data to be shown in daily intervals
+	RollupDatabases(db, oneMonthAgo, oneWeekAgo, dayInterval)
+
+	var hourTicker = time.NewTicker(time.Hour)
+	var weekTicker = time.NewTicker(time.Hour * 24 * 7)
 	for {
 		select {
-		case <-ticker.C:
-			currentTime = time.Now()
-			fiveMinutesAgo = currentTime.Add(-5 * time.Minute)
-			rawXHoursAgo = currentTime.Add(-1 * time.Hour)
-			oneHourAgo = rawXHoursAgo.Add(-time.Duration(rawXHoursAgo.Minute()%2) * time.Minute).Truncate(time.Minute * 2)
-			twoMinutesInterval = time.Minute * 2
-			RollupDatabases(db, oneHourAgo, fiveMinutesAgo, twoMinutesInterval)
+		case <-hourTicker.C:
+			var (
+				currentTime        = time.Now()
+				fiveMinutesAgo     = currentTime.Add(-5 * time.Minute)
+				oneHourAgo         = currentTime.Add(-1 * time.Hour).Truncate(time.Minute * 2)
+			)
+			RollupDatabases(db, oneHourAgo, fiveMinutesAgo, hourInterval)
+			continue
+		case <-weekTicker.C:
+			var (
+				currentTime    = time.Now()
+				fiveMinutesAgo = currentTime.Add(-5 * time.Minute)
+				hourInterval   = time.Minute * (60 / 30)
+				dayInterval    = hourInterval * 24
+				oneWeekAgo     = currentTime.Add(-7 * 24 * time.Hour).Truncate(hourInterval)
+				oneMonthAgo    = currentTime.Add(-30 * 24 * time.Hour).Truncate(dayInterval)
+			)
+		
+			//Rollup the last week of data to be shown in hourly intervals
+			RollupDatabases(db, oneWeekAgo, fiveMinutesAgo, hourInterval)
+			
+			//Rollup the last month of data to be shown in daily intervals
+			RollupDatabases(db, oneMonthAgo, oneWeekAgo, dayInterval)
+			continue
 		}
 	}
 }
