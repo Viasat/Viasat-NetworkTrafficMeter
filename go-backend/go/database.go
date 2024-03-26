@@ -4,13 +4,14 @@ import (
 	"database/sql"
 	"errors"
 	"log"
-	"os"
 	_ "modernc.org/sqlite"
+	"os"
+	"time"
 )
 
 // OpenDatabase opens the local database (or creates one if it doens't exist) and returns a database handle.
 func OpenDatabase() (db *sql.DB, err error) {
-	db, err = sql.Open("sqlite", os.Getenv("APPDATA")+ "/networktrafficmeter/database.db")
+	db, err = sql.Open("sqlite", os.Getenv("APPDATA")+"/networktrafficmeter/database.db")
 
 	if err = createActiveProcessTable(db); err != nil {
 		return nil, err
@@ -52,11 +53,11 @@ func createProcessDataTable(db *sql.DB) (err error) {
 	CREATE TABLE IF NOT EXISTS process_data (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		pid INTEGER NOT NULL,
-		create_time INTEGER NOT NULL,
 		upload INTEGER NOT NULL,
 		download INTEGER NOT NULL,
-		active_process_id INTEGER NOT NULL,
-		FOREIGN KEY (active_process_id) REFERENCES active_process (id)
+		update_time INTEGER NOT NULL,
+		active_process_name TEXT NOT NULL,
+		FOREIGN KEY (update_time, active_process_name) REFERENCES active_process (update_time, name)
 		ON DELETE CASCADE
 	);
 	`
@@ -73,8 +74,9 @@ func createProtocolDataTable(db *sql.DB) (err error) {
 		protocol_name TEXT NOT NULL,
 		upload INTEGER NOT NULL,
 		download INTEGER NOT NULL,
-		active_process_id INTEGER NOT NULL,
-		FOREIGN KEY (active_process_id) REFERENCES active_process (id)
+		update_time INTEGER NOT NULL,
+		active_process_name TEXT NOT NULL,
+		FOREIGN KEY (update_time, active_process_name) REFERENCES active_process (update_time, name)
 		ON DELETE CASCADE
 	);
 	`
@@ -91,8 +93,9 @@ func createHostDataTable(db *sql.DB) (err error) {
 		host_name TEXT NOT NULL,
 		upload INTEGER NOT NULL,
 		download INTEGER NOT NULL,
-		active_process_id INTEGER NOT NULL,
-		FOREIGN KEY (active_process_id) REFERENCES active_process (id)
+		update_time INTEGER NOT NULL,
+		active_process_name TEXT NOT NULL,
+		FOREIGN KEY (update_time, active_process_name) REFERENCES active_process (update_time, name)
 		ON DELETE CASCADE
 	);
 	`
@@ -118,7 +121,7 @@ func InsertActiveProcessWithRelatedData(db *sql.DB, activeProcessesList []map[st
 
 	for _, activeProcesses := range activeProcessesList {
 		if len(activeProcesses) == 0 {
-			continue;
+			continue
 		}
 		for _, activeProcess := range activeProcesses {
 			// Insert the ActiveProcess
@@ -126,52 +129,46 @@ func InsertActiveProcessWithRelatedData(db *sql.DB, activeProcessesList []map[st
 			INSERT INTO active_process (name, update_time, upload, download)
 			VALUES (?, ?, ?, ?);
 			`
-	
-			result, err := tx.Exec(insertActiveProcessSQL, activeProcess.Name, activeProcess.Update_Time, activeProcess.Upload, activeProcess.Download)
+
+			_, err := tx.Exec(insertActiveProcessSQL, activeProcess.Name, activeProcess.Update_Time, activeProcess.Upload, activeProcess.Download)
 			if err != nil {
 				return err
 			}
-	
-			// Get the ID of the inserted ActiveProcess
-			activeProcessID, err := result.LastInsertId()
-			if err != nil {
-				return err
-			}
-	
+
 			// Insert related ProcessData records
 			for _, processData := range activeProcess.Processes {
 				insertProcessDataSQL := `
-			INSERT INTO process_data (pid, create_time, upload, download, active_process_id)
+			INSERT INTO process_data (pid, upload, download, update_time, active_process_name)
 			VALUES (?, ?, ?, ?, ?);
 			`
-	
-				_, err := tx.Exec(insertProcessDataSQL, processData.Pid, processData.Create_Time, processData.Upload, processData.Download, activeProcessID)
+
+				_, err := tx.Exec(insertProcessDataSQL, processData.Pid, processData.Upload, processData.Download, activeProcess.Update_Time, activeProcess.Name)
 				if err != nil {
 					return err
 				}
 			}
-	
+
 			// Insert related ProtocolData records
 			for _, protocolData := range activeProcess.Protocols {
 				insertProtocolDataSQL := `
-			INSERT INTO protocol_data (protocol_name, upload, download, active_process_id)
-			VALUES (?, ?, ?, ?);
+			INSERT INTO protocol_data (protocol_name, upload, download, update_time, active_process_name)
+			VALUES (?, ?, ?, ?, ?);
 			`
-	
-				_, err := tx.Exec(insertProtocolDataSQL, protocolData.Protocol_Name, protocolData.Upload, protocolData.Download, activeProcessID)
+
+				_, err := tx.Exec(insertProtocolDataSQL, protocolData.Protocol_Name, protocolData.Upload, protocolData.Download, activeProcess.Update_Time, activeProcess.Name)
 				if err != nil {
 					return err
 				}
 			}
-	
+
 			// Insert related HostData records
 			for _, hostData := range activeProcess.Hosts {
 				insertHostDataSQL := `
-			INSERT INTO host_data (host_name, upload, download, active_process_id)
-			VALUES (?, ?, ?, ?);
+			INSERT INTO host_data (host_name, upload, download, update_time, active_process_name)
+			VALUES (?, ?, ?, ?, ?);
 			`
-	
-				_, err := tx.Exec(insertHostDataSQL, hostData.Host_Name, hostData.Upload, hostData.Download, activeProcessID)
+
+				_, err := tx.Exec(insertHostDataSQL, hostData.Host_Name, hostData.Upload, hostData.Download, activeProcess.Update_Time, activeProcess.Name)
 				if err != nil {
 					return err
 				}
@@ -254,8 +251,8 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 		activeProcess.Hosts = make(map[string]*HostData)
 
 		// Run another query to pick all processes related to this ActiveProcess
-		subQuery := "SELECT pr.pid, pr.create_time, pr.upload, pr.download FROM process_data AS pr WHERE pr.active_process_id = ?"
-		subRows, err := db.Query(subQuery, id)
+		subQuery := "SELECT pr.pid, pr.upload, pr.download FROM process_data AS pr WHERE pr.update_time = ? AND pr.active_process_name = ?"
+		subRows, err := db.Query(subQuery, activeProcess.Update_Time, activeProcess.Name)
 		if err != nil {
 			return activeProcesses, err
 		}
@@ -268,7 +265,6 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 			// Store the columns from the database in the ProcessData's attributes
 			if err = subRows.Scan(
 				&processData.Pid,
-				&processData.Create_Time,
 				&processData.Upload,
 				&processData.Download); err != nil {
 				return activeProcesses, err
@@ -279,8 +275,8 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 		}
 
 		// Run another query to pick all protocols from this active process
-		subQuery = "SELECT pr.protocol_name, pr.upload, pr.download FROM protocol_data AS pr WHERE pr.active_process_id = ?"
-		subRows, err = db.Query(subQuery, id)
+		subQuery = "SELECT pr.protocol_name, pr.upload, pr.download FROM protocol_data AS pr WHERE pr.update_time = ? AND pr.active_process_name = ?"
+		subRows, err = db.Query(subQuery, activeProcess.Update_Time, activeProcess.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -302,8 +298,8 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 			activeProcess.Protocols[protocolData.Protocol_Name] = &protocolData
 		}
 		// Run a query to pick all hosts from this active process
-		subQuery = "SELECT h.host_name, h.upload, h.download FROM host_data AS h WHERE h.active_process_id = ?"
-		subRows, err = db.Query(subQuery, id)
+		subQuery = "SELECT h.host_name, h.upload, h.download FROM host_data AS h WHERE h.update_time = ? AND h.active_process_name = ?"
+		subRows, err = db.Query(subQuery, activeProcess.Update_Time, activeProcess.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -337,14 +333,14 @@ func queryActiveProcesses(db *sql.DB, query string, args ...interface{}) (active
 }
 
 func GetProcesses(db *sql.DB) (processData []ProcessData, err error) {
-	selectQuery := `SELECT pd.pid, pd.create_time, pd.upload, pd.download FROM process_data AS pd`
+	selectQuery := `SELECT pd.pid, pd.upload, pd.download FROM process_data AS pd`
 
 	return queryProcesses(db, selectQuery)
 }
 
 func GetProcessesByPid(db *sql.DB, pid int) (processData []ProcessData, err error) {
 	selectQuery := `
-	SELECT pd.pid, pd.create_time, pd.upload, pd.download FROM process_data AS pd WHERE pd.pid = ?
+	SELECT pd.pid, pd.upload, pd.download FROM process_data AS pd WHERE pd.pid = ?
 	`
 
 	return queryProcesses(db, selectQuery, pid)
@@ -352,9 +348,9 @@ func GetProcessesByPid(db *sql.DB, pid int) (processData []ProcessData, err erro
 
 func GetProcessesByTime(db *sql.DB, initialDate, endDate int64) (processData []ProcessData, err error) {
 	selectQuery := `
-	SELECT pd.pid, pd.create_time, pd.upload, pd.download 
+	SELECT pd.pid, pd.upload, pd.download 
 	FROM process_data AS pd 
-	INNER JOIN active_process AS ap ON pd.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON pd.update_time = ap.update_time AND pd.active_process_name = ap.name
 	WHERE ap.update_time >= ? AND ap.update_time <= ?
 	`
 
@@ -363,9 +359,9 @@ func GetProcessesByTime(db *sql.DB, initialDate, endDate int64) (processData []P
 
 func GetProcessesByPidAndTime(db *sql.DB, pid int, initialDate, endDate int64) (processData []ProcessData, err error) {
 	selectQuery := `
-	SELECT pd.pid, pd.create_time, pd.upload, pd.download 
+	SELECT pd.pid, pd.upload, pd.download 
 	FROM process_data AS pd 
-	INNER JOIN active_process AS ap ON pd.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON pd.update_time = ap.update_time AND pd.active_process_name = ap.name
 	WHERE pd.pid = ? AND ap.update_time >= ? AND ap.update_time <= ?
 	`
 
@@ -393,7 +389,6 @@ func queryProcesses(db *sql.DB, query string, args ...interface{}) (processesDat
 		// Store the columns from the database in the ProcessData's attributes
 		if err = rows.Scan(
 			&processData.Pid,
-			&processData.Create_Time,
 			&processData.Upload,
 			&processData.Download); err != nil {
 			return
@@ -428,7 +423,7 @@ func GetProtocolsByTime(db *sql.DB, initialDate, endDate int64) (protocolData []
 	selectQuery := `
 	SELECT prot.protocol_name, prot.upload, prot.download
 	FROM protocol_data AS prot 
-	INNER JOIN active_process AS ap ON prot.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON prot.update_time = ap.update_time AND prot.active_process_name = ap.name
 	WHERE ap.update_time >= ? AND ap.update_time <= ?
 	`
 
@@ -439,7 +434,7 @@ func GetProtocolsByNameAndTime(db *sql.DB, protocol string, initialDate, endDate
 	selectQuery := `
 	SELECT prot.protocol_name, prot.upload, prot.download
 	FROM protocol_data AS prot 
-	INNER JOIN active_process AS ap ON prot.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON prot.update_time = ap.update_time AND prot.active_process_name = ap.name
 	WHERE prot.protocol_name = ? AND ap.update_time >= ? AND ap.update_time <= ?
 	`
 
@@ -501,7 +496,7 @@ func GetHostsByTime(db *sql.DB, initialDate, endDate int64) (hostsData []HostDat
 	selectQuery := `
 	SELECT h.host_name, h.upload, h.download
 	FROM host_data AS h 
-	INNER JOIN active_process AS ap ON h.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON h.update_time = ap.update_time AND h.active_process_name = ap.name
 	WHERE ap.update_time >= ? AND ap.update_time <= ?
 	`
 
@@ -512,7 +507,7 @@ func GetHostsByNameAndTime(db *sql.DB, protocol string, initialDate, endDate int
 	selectQuery := `
 	SELECT h.host_name, h.upload, h.download
 	FROM host_data AS h 
-	INNER JOIN active_process AS ap ON h.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON h.update_time = ap.update_time AND h.active_process_name = ap.name
 	WHERE h.host_name = ? AND ap.update_time >= ? AND ap.update_time <= ?
 	`
 
@@ -663,7 +658,7 @@ func GetProcessesThroughputByEntryAndTime(db *sql.DB, initialDate, endDate int64
 	SUM(p.download), 
 	SUM(p.upload+p.download) 
 	FROM process_data AS p
-	INNER JOIN active_process AS ap ON p.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON p.update_time = ap.update_time AND p.active_process_name = ap.name
 	WHERE ap.update_time >= ? AND ap.update_time <= ?
 	GROUP BY p.pid
 	`
@@ -677,7 +672,7 @@ func GetProcessesThroughputByPidAndTime(db *sql.DB, pid string, initialDate, end
 	SUM(p.download), 
 	SUM(p.upload+p.download)  
 	FROM process_data AS p
-	INNER JOIN active_process AS ap ON p.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON p.update_time = ap.update_time AND p.active_process_name = ap.name
 	WHERE p.pid = ? AND ap.update_time >= ? AND ap.update_time <= ?
 	`
 	return queryNamedStatistics(db, selectQuery, pid, initialDate, endDate)
@@ -716,7 +711,7 @@ func GetProtocolsThroughputByEntryAndTime(db *sql.DB, initialDate, endDate int64
 	SUM(p.download), 
 	SUM(p.upload+p.download) 
 	FROM protocol_data AS p
-	INNER JOIN active_process AS ap ON p.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON p.update_time = ap.update_time AND p.active_process_name = ap.name
 	WHERE ap.update_time >= ? AND ap.update_time <= ?
 	GROUP BY p.protocol_name
 	`
@@ -730,7 +725,7 @@ func GetProtocolsThroughputByNameAndTime(db *sql.DB, pid string, initialDate, en
 	SUM(p.download), 
 	SUM(p.upload+p.download)  
 	FROM protocol_data AS p
-	INNER JOIN active_process AS ap ON p.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON p.update_time = ap.update_time AND p.active_process_name = ap.name
 	WHERE p.protocol_name = ? AND ap.update_time >= ? AND ap.update_time <= ?
 	`
 	return queryNamedStatistics(db, selectQuery, pid, initialDate, endDate)
@@ -769,7 +764,7 @@ func GetHostsThroughputByEntryAndTime(db *sql.DB, initialDate, endDate int64) (i
 	SUM(h.download), 
 	SUM(h.upload+h.download) 
 	FROM host_data AS h
-	INNER JOIN active_process AS ap ON h.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON h.update_time = ap.update_time AND h.active_process_name = ap.name
 	WHERE ap.update_time >= ? AND ap.update_time <= ?
 	GROUP BY h.host_name
 	`
@@ -783,7 +778,7 @@ func GetHostsThroughputByNameAndTime(db *sql.DB, pid string, initialDate, endDat
 	SUM(h.download), 
 	SUM(h.upload+h.download)  
 	FROM host_data AS h
-	INNER JOIN active_process AS ap ON h.active_process_id = ap.id
+	INNER JOIN active_process AS ap ON h.update_time = ap.update_time AND h.active_process_name = ap.name
 	WHERE h.host_name = ? AND ap.update_time >= ? AND ap.update_time <= ?
 	`
 	return queryNamedStatistics(db, selectQuery, pid, initialDate, endDate)
@@ -900,4 +895,153 @@ func RemoveEntries(db *sql.DB, args ...interface{}) error {
 	}
 
 	return nil
+}
+
+func RollupDatabases(db *sql.DB, start, end time.Time, interval time.Duration) {
+	RollupActiveProcesses(db, start, end, interval)
+	RollupDataTables(db, "protocol_data", "protocol_name", start, end, interval)
+	RollupDataTables(db, "process_data", "pid", start, end, interval)
+	RollupDataTables(db, "host_data", "host_name", start, end, interval)
+}
+
+func RollupActiveProcesses(db *sql.DB, start time.Time, end time.Time, interval time.Duration) (err error) {
+	log.Println("Rolling up active processes...")
+
+	// Transaction for data manipulation
+	tx, err := db.Begin()
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Prepare insert statements for new data
+	insertStatement, err := tx.Prepare(`INSERT INTO active_process (name, upload, download, update_time) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer insertStatement.Close()
+
+	// Get all data between start and finish with grouped by name and interval
+	rows, err := db.Query(`
+		SELECT name, SUM(upload), SUM(download), CAST(ROUND(update_time / ?, 1) * ? AS int64) AS avgUpdateTime
+		FROM active_process 
+		WHERE update_time >= ? AND update_time < ? 
+		GROUP BY name, avgUpdateTime
+		`, interval.Milliseconds(), interval.Milliseconds(), start.UnixMilli(), end.UnixMilli())
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer rows.Close()
+
+	// Delete data between start and end
+	deleted, err := tx.Exec(`
+		DELETE FROM active_process
+		WHERE update_time >= ? AND update_time < ?`,
+		start.UnixMilli(), end.UnixMilli())
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	nRows := 0
+	for rows.Next() {
+		var name string
+		var totalUpload, totalDownload, minUpdateTime int64
+
+		err := rows.Scan(&name, &totalUpload, &totalDownload, &minUpdateTime)
+		if err != nil {
+			tx.Rollback()
+			log.Println(err)
+		}
+		nRows++
+		_, err = insertStatement.Exec(name, totalUpload, totalDownload, minUpdateTime)
+		if err != nil {
+			tx.Rollback()
+			log.Println(err)
+		}
+	}
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	
+	log.Println("Rollup completed!")
+	rowsDeleted, _ := deleted.RowsAffected()
+	log.Println("Rows deleted: ", rowsDeleted, " Rows inserted: ", nRows)
+	return
+}
+
+func RollupDataTables(db *sql.DB, tableName, identifierName string, start time.Time, end time.Time, interval time.Duration) (err error) {
+	log.Println("Rolling up " + tableName + "...")
+
+	// Transaction for data manipulation
+	tx, err := db.Begin()
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Prepare insert statements for new data
+	insertStatement, err := tx.Prepare(`INSERT INTO ` + tableName + ` (` + identifierName + `, upload, download, update_time, active_process_name) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer insertStatement.Close()
+
+	// Get all data between start and finish with grouped by identifierName, interval and active_process_name
+	rows, err := db.Query(`
+		SELECT `+identifierName+`, SUM(upload), SUM(download), CAST(ROUND(update_time / ?, 1) * ? AS int64) AS avgUpdateTime, active_process_name
+		FROM `+tableName+` 
+		WHERE update_time >= ? AND update_time < ? 
+		GROUP BY `+identifierName+`, avgUpdateTime, active_process_name
+		`, interval.Milliseconds(), interval.Milliseconds(), start.UnixMilli(), end.UnixMilli())
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer rows.Close()
+
+	// Delete data between start and end
+	deleted, err := tx.Exec(`
+		DELETE FROM `+tableName+`
+		WHERE update_time >= ? AND update_time < ?`, start.UnixMilli(), end.UnixMilli())
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	nRows := 0
+	for rows.Next() {
+		var name, process_name string
+		var totalUpload, totalDownload, updateTime int64
+
+		err := rows.Scan(&name, &totalUpload, &totalDownload, &updateTime, &process_name)
+		if err != nil {
+			tx.Rollback()
+			log.Println(err)
+		}
+		_, err = insertStatement.Exec(name, totalUpload, totalDownload, updateTime, process_name)
+		if err != nil {
+			tx.Rollback()
+			log.Println(err)
+		}
+		nRows++
+	}
+
+	
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	log.Println("Rollup completed!")
+	rowsDeleted, _ := deleted.RowsAffected()
+	log.Println("Rows deleted: ", rowsDeleted, " Rows inserted: ", nRows)
+	return
 }

@@ -45,6 +45,54 @@ func ManageDatabaseBuffer(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 	}
 }
 
+func ManageRollupDatabase(db *sql.DB) {
+	var (
+		currentTime    = time.Now()
+		fiveMinutesAgo = currentTime.Add(-5 * time.Minute)
+		hourInterval   = time.Minute * (60 / 30)
+		dayInterval    = hourInterval * 24
+		oneWeekAgo     = currentTime.Add(-7 * 24 * time.Hour).Truncate(hourInterval)
+		oneMonthAgo    = currentTime.Add(-30 * 24 * time.Hour).Truncate(dayInterval)
+	)
+
+	//Rollup the last week of data to be shown in hourly intervals
+	RollupDatabases(db, oneWeekAgo, fiveMinutesAgo, hourInterval)
+	
+	//Rollup the last month of data to be shown in daily intervals
+	RollupDatabases(db, oneMonthAgo, oneWeekAgo, dayInterval)
+
+	var hourTicker = time.NewTicker(time.Hour)
+	var weekTicker = time.NewTicker(time.Hour * 24 * 7)
+	for {
+		select {
+		case <-hourTicker.C:
+			var (
+				currentTime        = time.Now()
+				fiveMinutesAgo     = currentTime.Add(-5 * time.Minute)
+				oneHourAgo         = currentTime.Add(-1 * time.Hour).Truncate(time.Minute * 2)
+			)
+			RollupDatabases(db, oneHourAgo, fiveMinutesAgo, hourInterval)
+			continue
+		case <-weekTicker.C:
+			var (
+				currentTime    = time.Now()
+				fiveMinutesAgo = currentTime.Add(-5 * time.Minute)
+				hourInterval   = time.Minute * (60 / 30)
+				dayInterval    = hourInterval * 24
+				oneWeekAgo     = currentTime.Add(-7 * 24 * time.Hour).Truncate(hourInterval)
+				oneMonthAgo    = currentTime.Add(-30 * 24 * time.Hour).Truncate(dayInterval)
+			)
+		
+			//Rollup the last week of data to be shown in hourly intervals
+			RollupDatabases(db, oneWeekAgo, fiveMinutesAgo, hourInterval)
+			
+			//Rollup the last month of data to be shown in daily intervals
+			RollupDatabases(db, oneMonthAgo, oneWeekAgo, dayInterval)
+			continue
+		}
+	}
+}
+
 func SaveBufferToDatabase(db *sql.DB, bufferDatabaseMutex *sync.RWMutex) {
 	log.Println("Saving to database...")
 	bufferDatabaseMutex.Lock()
@@ -156,6 +204,9 @@ func main() {
 
 	// Send the active processes within 5 minutes to the database
 	go ManageDatabaseBuffer(db, &bufferDatabaseMutex)
+
+	// Rollup the databases every hour
+	go ManageRollupDatabase(db)
 
 	// Parse the active processes into JSON in intervals of 1 second.
 	go ParseActiveProcesses(bufferParserChan)
